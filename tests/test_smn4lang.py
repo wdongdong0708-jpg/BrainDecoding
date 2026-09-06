@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+import torch
 from scipy.io import savemat
 
 from datasets import SMN4Lang as dataset_module
@@ -20,6 +21,11 @@ from datasets.SMN4Lang import (
 from tasks.word_decoding.LibriBrain100.train import SentenceBatchSampler
 from tasks.word_decoding.SMN4Lang.evaluate import evaluate_checkpoint
 from tasks.word_decoding.SMN4Lang.train import load_config, run_training
+from models import build_brain_embedding_model
+from tasks.word_decoding.SMN4Lang.train import (
+    load_pretrained_brain_encoder,
+    set_brain_encoder_trainable,
+)
 
 
 CHANNEL_NAMES = [
@@ -124,6 +130,106 @@ def test_conv_only_config_changes_only_transformer_switch_and_output_dir():
         "evaluation",
     ):
         assert transformer_config[section] == conv_only_config[section]
+
+
+def test_one_second_cnn_warm_start_changes_only_training_stages_and_output():
+    project_root = Path(__file__).resolve().parents[1]
+    baseline = load_config(project_root / "configs" / "SMN4Lang_1s.yaml")
+    staged = load_config(
+        project_root / "configs" / "SMN4Lang_1s_cnn_warm_start.yaml"
+    )
+
+    assert staged["training"]["freeze_brain_encoder_updates"] == 960
+    assert staged["training"]["max_updates"] == 6400
+    assert staged["model"] == baseline["model"]
+    for section in ("dataset", "cache", "text_embedding", "loss", "evaluation"):
+        assert staged[section] == baseline[section]
+
+
+def test_pretrained_checkpoint_loads_only_brain_encoder(tmp_path):
+    positions = np.asarray(
+        [[index, index % 2, 1.0] for index in range(6)], dtype=np.float32
+    )
+    conv = {
+        "merger_channels": 4,
+        "merger_position_dimension": 8,
+        "merger_dropout": 0,
+        "initial_linear": 6,
+        "hidden": 4,
+        "depth": 2,
+        "kernel_size": 3,
+        "dilation_growth": 2,
+        "dilation_period": 2,
+        "dropout_input": 0,
+        "batch_norm": False,
+        "gelu": True,
+        "skip": True,
+        "glu_every": 0,
+        "temporal_attention_hidden": 4,
+    }
+    source_model_config = {
+        "embedding_dimension": 8,
+        "use_transformer": False,
+        "conv": conv,
+    }
+    target_model_config = {
+        **source_model_config,
+        "use_transformer": True,
+        "transformer": {"depth": 1, "heads": 2},
+    }
+    source = build_brain_embedding_model(6, positions, 1, source_model_config)
+    target = build_brain_embedding_model(6, positions, 1, target_model_config)
+    with torch.no_grad():
+        for parameter in source.brain_encoder.parameters():
+            parameter.fill_(0.125)
+    transformer_before = {
+        key: value.detach().clone()
+        for key, value in target.context_transformer.state_dict().items()
+    }
+    dataset_contract = {
+        "window_seconds": 1.0,
+        "target_sampling_rate_hz": 50,
+        "split": {"train_runs": [1], "val_runs": [2], "test_runs": [3]},
+        "training_vocabulary_policy": "all_nonempty_complete_window_words",
+        "evaluation_vocabulary_policy": "frozen_train_only_top50",
+    }
+    text_config = {"model_name": "synthetic", "embedding_dimension": 8}
+    checkpoint_path = tmp_path / "cnn.pt"
+    torch.save(
+        {
+            "task": "word_decoding/SMN4Lang",
+            "epoch": 3,
+            "model_state": source.state_dict(),
+            "model_config": source_model_config,
+            "text_embedding_config": text_config,
+            "dataset_contract": dataset_contract,
+            "channel_names": CHANNEL_NAMES,
+            "channel_positions": positions.tolist(),
+            "metrics": {"retrieval_acc10_vocab=smn4lang50_macro": 0.3},
+        },
+        checkpoint_path,
+    )
+    config = {
+        "dataset": dataset_contract,
+        "text_embedding": text_config,
+        "model": target_model_config,
+    }
+
+    audit = load_pretrained_brain_encoder(
+        target, checkpoint_path, config, CHANNEL_NAMES, positions
+    )
+
+    for key, value in source.brain_encoder.state_dict().items():
+        torch.testing.assert_close(target.brain_encoder.state_dict()[key], value)
+    for key, value in transformer_before.items():
+        torch.testing.assert_close(target.context_transformer.state_dict()[key], value)
+    assert audit["loaded_loss_state"] is False
+    assert audit["loaded_transformer_state"] is False
+    set_brain_encoder_trainable(target, False)
+    assert not any(parameter.requires_grad for parameter in target.brain_encoder.parameters())
+    assert target.brain_encoder.training is False
+    set_brain_encoder_trainable(target, True)
+    assert all(parameter.requires_grad for parameter in target.brain_encoder.parameters())
 
 
 def test_repository_gpt2_builds_train_only_word_prototypes(tmp_path):

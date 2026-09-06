@@ -1,0 +1,11 @@
+extends: SMN4Lang_1s.yaml
+
+training:
+  pretrained_brain_encoder_checkpoint: outputs/SMN4Lang/word_decoding_all_words_mengzi_1s_conv_only_6400updates/best.pt
+  # 第一阶段约三轮只训练新 Transformer；随后解冻 CNN 联合训练。
+  freeze_brain_encoder_updates: 960
+  output_dir: outputs/SMN4Lang/word_decoding_all_words_mengzi_1s_cnn_warm_start_freeze960_6400updates
+
+provenance:
+  initialization_condition: cnn_only_best_checkpoint_brain_encoder_only
+  staged_training: freeze_cnn_960_updates_then_joint_to_6400
