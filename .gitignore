@@ -1,0 +1,12 @@
+outputs/
+*.npz
+*.csv
+*.json
+
+__pycache__/
+*.py[cod]
+
+tasks/sequence_decoding/ChineseEEG_SR/cache/
+tasks/word_decoding/LibriBrain100/cache/
+tasks/word_decoding/SMN4Lang/cache/
+.pytest*

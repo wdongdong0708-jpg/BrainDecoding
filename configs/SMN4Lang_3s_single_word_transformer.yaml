@@ -1,0 +1,11 @@
+extends: SMN4Lang.yaml
+
+model:
+  context_mode: singleton
+
+training:
+  output_dir: outputs/SMN4Lang/word_decoding_all_words_mengzi_3s_single_word_transformer_6400updates
+
+provenance:
+  window_ablation: canonical_3s_signal_window
+  context_condition: single_word_transformer
