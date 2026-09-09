@@ -1,0 +1,13 @@
+extends: ChineseEEG2_LittlePrince_sub01_sub02_actual_reading_1s.yaml
+
+model:
+  context_mode: grouped
+
+training:
+  pretrained_brain_encoder_checkpoint: outputs/ChineseEEG2_LittlePrince/sub-01_sub-02/actual_reading_1s/cnn_only/best.pt
+  freeze_brain_encoder_updates: 252
+  output_dir: outputs/ChineseEEG2_LittlePrince/sub-01_sub-02/actual_reading_1s/cnn_warm_start
+
+provenance:
+  context_condition: sentence_transformer
+  staged_training: freeze_cnn_252_updates_then_joint_to_3200

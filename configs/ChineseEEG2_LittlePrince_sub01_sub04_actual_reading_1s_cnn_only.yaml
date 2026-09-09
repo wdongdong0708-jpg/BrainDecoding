@@ -1,0 +1,10 @@
+extends: ChineseEEG2_LittlePrince_sub01_sub04_actual_reading_1s.yaml
+
+model:
+  use_transformer: false
+
+training:
+  output_dir: outputs/ChineseEEG2_LittlePrince/sub-01_to_sub-04/actual_reading_1s/cnn_only
+
+provenance:
+  context_condition: cnn_only

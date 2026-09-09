@@ -1,0 +1,819 @@
+"""ChineseEEG2《小王子》50 高频词闭集解码训练入口。"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import torch
+import yaml
+
+
+TASK_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = TASK_DIR.parents[2]
+DEFAULT_CONFIG = (
+    PROJECT_ROOT
+    / "configs"
+    / "ChineseEEG2_LittlePrince_sub01_actual_reading_1s_cnn_warm_start.yaml"
+)
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from datasets import ChineseEEG2 as dataset_module
+from losses import build_siglip_loss
+from metrics import fixed_vocabulary_retrieval_metrics
+from models import build_brain_embedding_model
+from optimizers import build_adamw_for_modules, build_cosine_annealing_scheduler
+from tasks.word_decoding.LibriBrain100.train import (
+    choose_device,
+    cpu_state_dict,
+    limit_rows,
+    load_checkpoint,
+    make_loader,
+    parameter_count,
+    save_checkpoint,
+    save_json,
+    set_seed,
+)
+
+
+def 项目路径(value):
+    """以项目根目录为基准解析配置路径。"""
+    path = Path(value)
+    return path if path.is_absolute() else PROJECT_ROOT / path
+
+
+def _递归合并(base, override):
+    """递归合并父配置和当前阶段的局部覆盖。"""
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _递归合并(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _载入配置映射(config_path, ancestors=()):
+    """递归展开配置继承，并拒绝循环引用。"""
+    config_path = Path(config_path).resolve()
+    if config_path in ancestors:
+        raise ValueError(f"配置继承出现循环：{config_path}")
+    with config_path.open("r", encoding="utf-8") as stream:
+        config = yaml.safe_load(stream) or {}
+    parent = config.pop("extends", None)
+    if parent is None:
+        return config
+    parent_path = Path(parent)
+    if not parent_path.is_absolute():
+        parent_path = config_path.parent / parent_path
+    parent_config = _载入配置映射(parent_path, (*ancestors, config_path))
+    return _递归合并(parent_config, config)
+
+
+def 载入配置(path=None):
+    """载入单一任务配置，并展开项目内的输出与缓存路径。"""
+    config_path = 项目路径(path or DEFAULT_CONFIG)
+    config = _载入配置映射(config_path)
+    for key in ("event_table", "eeg_dir", "text_embeddings"):
+        config["cache"][key] = str(项目路径(config["cache"][key]))
+    config["training"]["output_dir"] = str(
+        项目路径(config["training"]["output_dir"])
+    )
+    checkpoint = config["training"].get("pretrained_brain_encoder_checkpoint")
+    if checkpoint:
+        config["training"]["pretrained_brain_encoder_checkpoint"] = str(
+            项目路径(checkpoint)
+        )
+    return config
+
+
+def 准备事件表(
+    config,
+    with_eeg_cache=False,
+    with_text_embeddings=False,
+    include_test=False,
+    force_cache=False,
+):
+    """先完成元数据审计，再按明确授权物化所选数据。"""
+    if config["dataset"].get("event_source_type") != "actual_reading_workbook":
+        raise ValueError("《小王子》任务只接受 actual_reading 工作簿事件。")
+    event_table = dataset_module.构建实际朗读事件表(config["dataset"])
+    audit = dataset_module.审计事件表(event_table, config["dataset"])
+    event_path = dataset_module.保存事件表(
+        event_table, config["cache"]["event_table"], audit
+    )
+    selected_splits = ["train", "val"] + (["test"] if include_test else [])
+    selected = event_table[
+        event_table["split"].isin(selected_splits)
+        & event_table["is_trainable"].astype(bool)
+    ].reset_index(drop=True)
+    if with_text_embeddings:
+        dataset_module.ensure_text_embedding_cache(
+            selected["normalized_word"],
+            config["text_embedding"],
+            config["cache"]["text_embeddings"],
+        )
+    if with_eeg_cache:
+        dataset_module.确保记录缓存(
+            selected,
+            config["dataset"],
+            config["cache"]["eeg_dir"],
+            force=force_cache,
+        )
+    return {
+        "status": "event_table_prepared",
+        "event_table": str(event_path),
+        "audit": audit,
+        "materialized_splits": selected_splits,
+        "text_embeddings_materialized": bool(with_text_embeddings),
+        "eeg_materialized": bool(with_eeg_cache),
+        "test_eeg_opened": bool(with_eeg_cache and include_test),
+    }
+
+
+def 确保事件表(config):
+    """事件表缺失时只构建元数据，不物化任何脑电记录。"""
+    path = Path(config["cache"]["event_table"])
+    if not path.exists():
+        准备事件表(config)
+    grouping = pd.read_csv(path, usecols=["context_grouping"])["context_grouping"]
+    if not grouping.eq(config["dataset"]["context_grouping"]).all():
+        raise ValueError("事件缓存的语境分组方式与配置不一致。")
+    return path
+
+
+def 物化所选输入(config, table, force_cache=False):
+    """只物化传入事件表所需的文本向量与脑电记录。"""
+    dataset_module.ensure_text_embedding_cache(
+        table["normalized_word"],
+        config["text_embedding"],
+        config["cache"]["text_embeddings"],
+    )
+    dataset_module.确保记录缓存(
+        table,
+        config["dataset"],
+        config["cache"]["eeg_dir"],
+        force=force_cache,
+    )
+
+
+def 构建数据集(config, table, zero_eeg=False):
+    """构建与当前配置绑定的词事件数据集。"""
+    return dataset_module.ChineseEEG2LittlePrinceWordDataset(
+        table,
+        config["dataset"],
+        config["cache"]["eeg_dir"],
+        config["cache"]["text_embeddings"],
+        config["text_embedding"],
+        zero_eeg=zero_eeg,
+    )
+
+
+def 设置脑编码器可训练(model, trainable):
+    """冻结时同步固定脑编码器中的随机失活和批归一化状态。"""
+    trainable = bool(trainable)
+    for parameter in model.brain_encoder.parameters():
+        parameter.requires_grad_(trainable)
+    model.brain_encoder.train(trainable)
+
+
+def 文件摘要(path):
+    """计算预训练检查点的 SHA-256 摘要。"""
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def 载入预训练脑编码器(
+    model,
+    checkpoint_path,
+    config,
+    channel_names,
+    channel_positions,
+    subject_ids,
+    vocabulary,
+):
+    """只载入同一数据合同 CNN-only 检查点中的脑编码器。"""
+    checkpoint_path = Path(checkpoint_path).resolve()
+    checkpoint = load_checkpoint(checkpoint_path, map_location="cpu")
+    if checkpoint.get("task") != "word_decoding/ChineseEEG2_LittlePrince":
+        raise ValueError("预训练检查点不属于 ChineseEEG2《小王子》任务。")
+    if bool(checkpoint.get("model_config", {}).get("use_transformer", True)):
+        raise ValueError("预训练脑编码器必须来自 CNN-only 训练。")
+    if checkpoint.get("text_embedding_config") != config["text_embedding"]:
+        raise ValueError("预训练 CNN 与目标模型的文本向量合同不同。")
+
+    source_contract = checkpoint.get("dataset_contract", {})
+    checked_fields = (
+        "split",
+        "window_start_offset_seconds",
+        "window_seconds",
+        "eligibility_window_seconds",
+        "source_sampling_rate_hz",
+        "target_sampling_rate_hz",
+        "training_vocabulary_policy",
+        "evaluation_vocabulary_policy",
+        "event_source_type",
+        "timestamp_to_eeg_offset_seconds",
+    )
+    for field in checked_fields:
+        if source_contract.get(field) != config["dataset"].get(field):
+            raise ValueError(f"预训练 CNN 的数据合同字段不一致：{field}")
+    if tuple(source_contract.get("evaluation_vocabulary", ())) != tuple(vocabulary):
+        raise ValueError("预训练 CNN 与目标模型的冻结候选词不同。")
+    if tuple(checkpoint.get("channel_names", ())) != tuple(channel_names):
+        raise ValueError("预训练 CNN 与目标数据的脑电通道顺序不同。")
+    source_positions = np.asarray(checkpoint.get("channel_positions", ()))
+    target_positions = np.asarray(channel_positions)
+    if source_positions.shape != target_positions.shape or not np.allclose(
+        source_positions,
+        target_positions,
+        rtol=0.0,
+        atol=1e-7,
+    ):
+        raise ValueError("预训练 CNN 与目标数据的电极坐标不同。")
+    if tuple(checkpoint.get("subject_ids", ())) != tuple(subject_ids):
+        raise ValueError("预训练 CNN 与目标模型的受试者索引合同不同。")
+
+    prefix = "brain_encoder."
+    encoder_state = {
+        key[len(prefix) :]: value
+        for key, value in checkpoint["model_state"].items()
+        if key.startswith(prefix)
+    }
+    if not encoder_state:
+        raise ValueError("预训练检查点不包含脑编码器权重。")
+    model.brain_encoder.load_state_dict(encoder_state, strict=True)
+    metrics = checkpoint.get("metrics", {})
+    return {
+        "method": "cnn_only_best_checkpoint_brain_encoder_only",
+        "source_checkpoint": str(checkpoint_path),
+        "source_checkpoint_sha256": 文件摘要(checkpoint_path),
+        "source_epoch": int(checkpoint["epoch"]),
+        "source_optimizer_updates": checkpoint.get("optimizer_updates"),
+        "source_macro_recall_at_10": metrics.get(
+            "retrieval_acc10_vocab=chineseeeg2_littleprince50_macro"
+        ),
+        "loaded_loss_state": False,
+        "loaded_transformer_state": False,
+    }
+
+
+def 移动批次(batch, device):
+    """把模型输入张量移动到目标设备。"""
+    return (
+        batch["eeg"].to(device, non_blocking=True),
+        batch["text_embedding"].to(device, non_blocking=True),
+        batch["subject_index"].to(device, non_blocking=True),
+        batch["sentence_index"].to(device, non_blocking=True),
+    )
+
+
+def 训练一轮(
+    model,
+    loss_module,
+    loader,
+    optimizer,
+    scaler,
+    device,
+    config,
+    maximum_updates,
+    scheduler,
+    starting_optimizer_updates=0,
+    freeze_brain_encoder_updates=0,
+):
+    """训练一轮，并且不越过剩余优化器更新预算。"""
+    model.train()
+    loss_module.train()
+    use_amp = bool(config.get("amp", True)) and device.type == "cuda"
+    loss_sum = 0.0
+    sample_count = 0
+    update_count = 0
+    frozen_update_count = 0
+    joint_update_count = 0
+    batches_seen = 0
+    previous_frozen_state = None
+    for batch in loader:
+        if update_count >= int(maximum_updates):
+            break
+        encoder_is_frozen = (
+            int(starting_optimizer_updates) + update_count
+            < int(freeze_brain_encoder_updates)
+        )
+        if encoder_is_frozen != previous_frozen_state:
+            设置脑编码器可训练(model, not encoder_is_frozen)
+            previous_frozen_state = encoder_is_frozen
+        eeg, targets, subject_indices, sentence_indices = 移动批次(batch, device)
+        optimizer.zero_grad(set_to_none=True)
+        with torch.autocast(
+            device_type=device.type,
+            dtype=torch.float16,
+            enabled=use_amp,
+        ):
+            estimates = model(eeg, subject_indices, sentence_indices)
+            loss = loss_module(estimates, targets)
+        scaler.scale(loss).backward()
+        max_grad_norm = float(config.get("max_grad_norm", 0.0))
+        if max_grad_norm > 0:
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
+        previous_scale = float(scaler.get_scale())
+        scaler.step(optimizer)
+        scaler.update()
+        update_succeeded = not use_amp or float(scaler.get_scale()) >= previous_scale
+        if update_succeeded:
+            update_count += 1
+            if encoder_is_frozen:
+                frozen_update_count += 1
+            else:
+                joint_update_count += 1
+            scheduler.step()
+        loss_sum += float(loss.detach()) * len(eeg)
+        sample_count += len(eeg)
+        batches_seen += 1
+    if sample_count == 0:
+        raise RuntimeError("这一轮没有读取任何训练批次。")
+    return (
+        loss_sum / sample_count,
+        update_count,
+        batches_seen,
+        frozen_update_count,
+        joint_update_count,
+    )
+
+
+@torch.inference_mode()
+def 编码数据(model, loader, device, amp=True):
+    """编码一个完整数据划分，保留检索评估需要的标识。"""
+    model.eval()
+    predictions = []
+    targets = []
+    words = []
+    event_ids = []
+    recording_ids = []
+    use_amp = bool(amp) and device.type == "cuda"
+    for batch in loader:
+        eeg, text_embedding, subject_indices, sentence_indices = 移动批次(
+            batch, device
+        )
+        with torch.autocast(
+            device_type=device.type,
+            dtype=torch.float16,
+            enabled=use_amp,
+        ):
+            estimate = model(eeg, subject_indices, sentence_indices)
+        predictions.append(estimate.float().cpu())
+        targets.append(text_embedding.float().cpu())
+        words.extend(str(value) for value in batch["word"])
+        event_ids.extend(str(value) for value in batch["event_id"])
+        recording_ids.extend(str(value) for value in batch["recording_id"])
+    return {
+        "predictions": torch.cat(predictions),
+        "targets": torch.cat(targets),
+        "words": words,
+        "event_ids": event_ids,
+        "recording_ids": recording_ids,
+    }
+
+
+def 评估数据(model, loader, device, vocabulary, top_ks=(1, 10), amp=True):
+    """按冻结训练词表计算闭集检索指标。"""
+    encoded = 编码数据(model, loader, device, amp=amp)
+    metrics = fixed_vocabulary_retrieval_metrics(
+        encoded["predictions"],
+        encoded["targets"],
+        encoded["words"],
+        vocabulary,
+        top_ks=top_ks,
+        vocabulary_name="chineseeeg2_littleprince50",
+    )
+    return metrics, encoded
+
+
+def 检查点内容(
+    model,
+    loss_module,
+    config,
+    epoch,
+    metrics,
+    vocabulary,
+    dataset,
+    optimizer_updates,
+    optimizer=None,
+    scheduler=None,
+    initialization_audit=None,
+    training_phase=None,
+):
+    """生成包含完整数据合同且可安全复核的检查点。"""
+    payload = {
+        "format_version": 1,
+        "task": "word_decoding/ChineseEEG2_LittlePrince",
+        "epoch": int(epoch),
+        "optimizer_updates": int(optimizer_updates),
+        "model_state": model.state_dict(),
+        "loss_state": loss_module.state_dict(),
+        "model_config": config["model"],
+        "loss_config": config["loss"],
+        "text_embedding_config": config["text_embedding"],
+        "metrics": metrics,
+        "channel_names": list(dataset.channel_names),
+        "channel_positions": np.asarray(dataset.channel_positions).tolist(),
+        "subject_ids": list(dataset.subject_ids),
+        "dataset_contract": {
+            "context_grouping": config["dataset"]["context_grouping"],
+            "root": config["dataset"]["root"],
+            "alignment_path": config["dataset"]["alignment_path"],
+            "subjects": config["dataset"]["subjects"],
+            "split": config["dataset"]["split"],
+            "window_start_offset_seconds": config["dataset"].get(
+                "window_start_offset_seconds", 0.0
+            ),
+            "window_seconds": config["dataset"]["window_seconds"],
+            "eligibility_window_seconds": config["dataset"].get(
+                "eligibility_window_seconds", config["dataset"]["window_seconds"]
+            ),
+            "source_sampling_rate_hz": config["dataset"][
+                "source_sampling_rate_hz"
+            ],
+            "target_sampling_rate_hz": config["dataset"][
+                "target_sampling_rate_hz"
+            ],
+            "training_vocabulary_policy": config["dataset"][
+                "training_vocabulary_policy"
+            ],
+            "evaluation_vocabulary_policy": config["dataset"][
+                "evaluation_vocabulary_policy"
+            ],
+            "event_source_type": config["dataset"]["event_source_type"],
+            "timestamp_to_eeg_offset_seconds": config["dataset"].get("timestamp_to_eeg_offset_seconds"),
+            "evaluation_vocabulary": list(vocabulary),
+            "test_eeg_opened": False,
+        },
+        "provenance": config.get("provenance", {}),
+    }
+    if initialization_audit is not None:
+        payload["initialization_audit"] = initialization_audit
+    if training_phase is not None:
+        payload["training_phase"] = training_phase
+    if optimizer is not None:
+        payload["optimizer_state"] = optimizer.state_dict()
+    if scheduler is not None:
+        payload["scheduler_state"] = scheduler.state_dict()
+    return payload
+
+
+def 执行训练(config, smoke=False, save=True, force_cache=False):
+    """在训练与验证集上执行固定更新预算训练，测试集始终锁定。"""
+    training_config = dict(config["training"])
+    staged_training = bool(
+        training_config.get("pretrained_brain_encoder_checkpoint")
+    )
+    if int(config["model"]["embedding_dimension"]) != int(
+        config["text_embedding"]["embedding_dimension"]
+    ):
+        raise ValueError("模型输出维数与文本目标维数不一致。")
+    if smoke:
+        training_config["epochs"] = 1
+        training_config["patience"] = 1
+        training_config["batch_size"] = min(
+            int(training_config["batch_size"]), 16
+        )
+        smoke_updates = 2 if staged_training else 1
+        training_config["max_updates"] = smoke_updates
+        training_config["minimum_updates_before_early_stopping"] = smoke_updates
+        if staged_training:
+            training_config["freeze_brain_encoder_updates"] = 1
+
+    max_updates = int(training_config["max_updates"])
+    minimum_updates = int(
+        training_config.get("minimum_updates_before_early_stopping", 0)
+    )
+    scheduler_horizon = int(
+        training_config.get("scheduler_total_updates", max_updates)
+    )
+    if max_updates <= 0 or minimum_updates < 0 or minimum_updates > max_updates:
+        raise ValueError("优化器更新预算无效。")
+    if scheduler_horizon < max_updates:
+        raise ValueError("余弦调度总步数不能小于训练更新预算。")
+    freeze_brain_encoder_updates = int(
+        training_config.get("freeze_brain_encoder_updates", 0)
+    )
+    if freeze_brain_encoder_updates < 0:
+        raise ValueError("冻结 CNN 的更新次数不能为负数。")
+    if staged_training:
+        if not bool(config["model"].get("use_transformer", True)):
+            raise ValueError("CNN 预热的第二阶段必须启用 Transformer。")
+        if not 0 < freeze_brain_encoder_updates < max_updates:
+            raise ValueError("第二阶段必须先冻结 CNN，再留出联合训练更新。")
+    elif freeze_brain_encoder_updates:
+        raise ValueError("没有预训练 CNN 检查点时不能设置冻结阶段。")
+
+    set_seed(int(training_config["seed"]))
+    device = choose_device(training_config.get("device", "auto"))
+    event_path = 确保事件表(config)
+    train_table = dataset_module.载入事件表(event_path, split="train")
+    val_table = dataset_module.载入事件表(event_path, split="val")
+    if smoke:
+        maximum = int(training_config.get("smoke_rows", 64))
+        train_table = limit_rows(train_table, maximum)
+        val_table = limit_rows(val_table, maximum)
+
+    物化所选输入(
+        config,
+        pd.concat([train_table, val_table], ignore_index=True),
+        force_cache=force_cache,
+    )
+    train_dataset = 构建数据集(config, train_table)
+    val_dataset = 构建数据集(config, val_table)
+    train_loader, train_sampler = make_loader(
+        train_dataset, training_config, shuffle=True
+    )
+    val_loader, _ = make_loader(val_dataset, training_config, shuffle=False)
+    vocabulary = dataset_module.载入候选词(event_path)
+
+    model = build_brain_embedding_model(
+        train_dataset.channel_count,
+        train_dataset.channel_positions,
+        train_dataset.subject_count,
+        config["model"],
+    ).to(device)
+    loss_module = build_siglip_loss(config["loss"]).to(device)
+    initialization_audit = None
+    if staged_training:
+        initialization_audit = 载入预训练脑编码器(
+            model,
+            training_config["pretrained_brain_encoder_checkpoint"],
+            config,
+            train_dataset.channel_names,
+            train_dataset.channel_positions,
+            train_dataset.subject_ids,
+            vocabulary,
+        )
+    optimizer = build_adamw_for_modules([model, loss_module], training_config)
+    if staged_training:
+        设置脑编码器可训练(model, False)
+    scheduler = build_cosine_annealing_scheduler(
+        optimizer,
+        scheduler_horizon,
+        minimum_learning_rate=float(
+            training_config.get("minimum_learning_rate", 0.0)
+        ),
+    )
+    use_amp = bool(training_config.get("amp", True)) and device.type == "cuda"
+    scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
+    top_ks = tuple(int(value) for value in training_config.get("top_ks", [1, 10]))
+    selection_metric = (
+        f"retrieval_acc{max(top_ks)}_vocab="
+        "chineseeeg2_littleprince50_macro"
+    )
+    output_dir = Path(training_config["output_dir"])
+    if save:
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+    best_score = -float("inf")
+    best_epoch = None
+    best_metrics = None
+    best_model_state = None
+    best_loss_state = None
+    epochs_without_improvement = 0
+    optimizer_updates = 0
+    frozen_encoder_updates = 0
+    joint_updates = 0
+    stop_reason = "maximum_epochs_reached"
+    history = []
+    for epoch in range(int(training_config["epochs"])):
+        train_sampler.set_epoch(epoch)
+        (
+            train_loss,
+            epoch_updates,
+            batches_seen,
+            epoch_frozen_updates,
+            epoch_joint_updates,
+        ) = 训练一轮(
+            model,
+            loss_module,
+            train_loader,
+            optimizer,
+            scaler,
+            device,
+            training_config,
+            max_updates - optimizer_updates,
+            scheduler,
+            starting_optimizer_updates=optimizer_updates,
+            freeze_brain_encoder_updates=freeze_brain_encoder_updates,
+        )
+        optimizer_updates += epoch_updates
+        frozen_encoder_updates += epoch_frozen_updates
+        joint_updates += epoch_joint_updates
+        validation_metrics, _ = 评估数据(
+            model,
+            val_loader,
+            device,
+            vocabulary,
+            top_ks=top_ks,
+            amp=training_config.get("amp", True),
+        )
+        score = float(validation_metrics[selection_metric])
+        epoch_record = {
+            "epoch": epoch + 1,
+            "train_loss": train_loss,
+            "learning_rate": float(optimizer.param_groups[0]["lr"]),
+            "epoch_optimizer_updates": int(epoch_updates),
+            "optimizer_updates": int(optimizer_updates),
+            "batches_seen": int(batches_seen),
+            "frozen_encoder_optimizer_updates": int(epoch_frozen_updates),
+            "joint_optimizer_updates": int(epoch_joint_updates),
+            "training_phase_at_epoch_end": (
+                "cnn_frozen"
+                if optimizer_updates < freeze_brain_encoder_updates
+                else "joint"
+            ),
+            **validation_metrics,
+        }
+        history.append(epoch_record)
+        print(
+            f"第 {epoch + 1} 轮：loss={train_loss:.5f}，"
+            f"验证集宏平均 Top-{max(top_ks)}={score:.6f}"
+        )
+
+        if score > best_score:
+            best_score = score
+            best_epoch = epoch + 1
+            best_metrics = validation_metrics
+            epochs_without_improvement = 0
+            if save:
+                save_checkpoint(
+                    output_dir / "best.pt",
+                    检查点内容(
+                        model,
+                        loss_module,
+                        config,
+                        epoch + 1,
+                        validation_metrics,
+                        vocabulary,
+                        train_dataset,
+                        optimizer_updates,
+                        initialization_audit=initialization_audit,
+                        training_phase={
+                            "freeze_brain_encoder_updates": freeze_brain_encoder_updates,
+                            "frozen_encoder_optimizer_updates": frozen_encoder_updates,
+                            "joint_optimizer_updates": joint_updates,
+                        },
+                    ),
+                )
+            else:
+                best_model_state = cpu_state_dict(model)
+                best_loss_state = cpu_state_dict(loss_module)
+        else:
+            epochs_without_improvement += 1
+
+        if save:
+            save_checkpoint(
+                output_dir / "last.pt",
+                检查点内容(
+                    model,
+                    loss_module,
+                    config,
+                    epoch + 1,
+                    validation_metrics,
+                    vocabulary,
+                    train_dataset,
+                    optimizer_updates,
+                    optimizer=optimizer,
+                    scheduler=scheduler,
+                    initialization_audit=initialization_audit,
+                    training_phase={
+                        "freeze_brain_encoder_updates": freeze_brain_encoder_updates,
+                        "frozen_encoder_optimizer_updates": frozen_encoder_updates,
+                        "joint_optimizer_updates": joint_updates,
+                    },
+                ),
+            )
+        if optimizer_updates >= max_updates:
+            stop_reason = "update_budget_reached"
+            break
+        if (
+            epochs_without_improvement >= int(training_config["patience"])
+            and optimizer_updates >= minimum_updates
+        ):
+            stop_reason = "early_stopping"
+            break
+
+    if best_epoch is None:
+        raise RuntimeError("训练没有产生有效的验证指标。")
+    if optimizer_updates < minimum_updates:
+        raise RuntimeError(
+            f"训练仅完成 {optimizer_updates} 次更新，低于要求的 {minimum_updates} 次。"
+        )
+    if not save and best_model_state is not None:
+        model.load_state_dict(best_model_state)
+        loss_module.load_state_dict(best_loss_state)
+
+    summary = {
+        "status": "smoke_completed" if smoke else "training_completed",
+        "device": str(device),
+        "test_eeg_opened": False,
+        "event_table": str(event_path),
+        "train_rows": len(train_dataset),
+        "validation_rows": len(val_dataset),
+        "eeg_shape": [train_dataset.channel_count, train_dataset.window_samples],
+        "subject_count": train_dataset.subject_count,
+        "model_parameter_count": parameter_count(model),
+        "loss_parameter_count": parameter_count(loss_module),
+        "initialization_audit": initialization_audit,
+        "freeze_brain_encoder_updates": freeze_brain_encoder_updates,
+        "frozen_encoder_optimizer_updates": int(frozen_encoder_updates),
+        "joint_optimizer_updates": int(joint_updates),
+        "selection_metric": selection_metric,
+        "best_epoch": best_epoch,
+        "best_score": best_score,
+        "best_validation": best_metrics,
+        "optimizer_updates": int(optimizer_updates),
+        "target_updates": max_updates,
+        "scheduler_total_updates": scheduler_horizon,
+        "batch_size_limit": int(training_config["batch_size"]),
+        "estimated_batches_per_epoch": len(train_loader),
+        "stop_reason": stop_reason,
+        "history": history,
+        "test_status": "locked_not_evaluated",
+    }
+    if save:
+        save_json(output_dir / "training_summary.json", summary)
+    return summary
+
+
+def 打印训练摘要(summary):
+    """输出适合命令行查看的简要训练状态。"""
+    print("ChineseEEG2《小王子》训练完成")
+    print(f"  设备：{summary['device']}")
+    print(f"  训练/验证事件：{summary['train_rows']} / {summary['validation_rows']}")
+    if summary.get("initialization_audit") is not None:
+        print(
+            "  分阶段更新："
+            f"冻结 CNN {summary['frozen_encoder_optimizer_updates']}，"
+            f"联合训练 {summary['joint_optimizer_updates']}"
+        )
+    print(
+        f"  最佳轮次：{summary['best_epoch']}，"
+        f"{summary['selection_metric']}={summary['best_score']:.6f}"
+    )
+    print(
+        f"  优化器更新：{summary['optimizer_updates']} / "
+        f"{summary['target_updates']}"
+    )
+    print("  测试集：已锁定，未评估")
+
+
+def 解析参数(argv=None):
+    """解析准备、训练和缓存物化参数。"""
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", default=str(DEFAULT_CONFIG))
+    parser.add_argument("--prepare", action="store_true", help="构建并审计事件表")
+    parser.add_argument(
+        "--with-eeg-cache", action="store_true", help="物化所选脑电记录缓存"
+    )
+    parser.add_argument(
+        "--with-text-embeddings", action="store_true", help="物化所选文本向量"
+    )
+    parser.add_argument(
+        "--include-test", action="store_true", help="明确允许准备测试集输入"
+    )
+    parser.add_argument("--force-cache", action="store_true", help="强制重建脑电缓存")
+    parser.add_argument("--smoke", action="store_true", help="执行一次小规模真实训练")
+    parser.add_argument("--no-save", action="store_true", help="不写入模型检查点")
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
+    """执行命令行请求。"""
+    args = 解析参数(argv)
+    config = 载入配置(args.config)
+    if args.prepare:
+        summary = 准备事件表(
+            config,
+            with_eeg_cache=args.with_eeg_cache,
+            with_text_embeddings=args.with_text_embeddings,
+            include_test=args.include_test,
+            force_cache=args.force_cache,
+        )
+        print(yaml.safe_dump(summary, allow_unicode=True, sort_keys=False))
+        return
+    summary = 执行训练(
+        config,
+        smoke=args.smoke,
+        save=not args.no_save,
+        force_cache=args.force_cache,
+    )
+    打印训练摘要(summary)
+
+
+if __name__ == "__main__":
+    main()

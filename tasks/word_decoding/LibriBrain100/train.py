@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import random
@@ -73,6 +74,13 @@ def load_config(path=None):
     config["training"]["output_dir"] = str(
         project_path(config["training"]["output_dir"])
     )
+    pretrained_checkpoint = config["training"].get(
+        "pretrained_brain_encoder_checkpoint"
+    )
+    if pretrained_checkpoint:
+        config["training"]["pretrained_brain_encoder_checkpoint"] = str(
+            project_path(pretrained_checkpoint)
+        )
     layout_path = config["dataset"].get("layout_path")
     if layout_path:
         config["dataset"]["layout_path"] = str(project_path(layout_path))
@@ -267,6 +275,80 @@ def build_dataset(config, table, zero_meg=False):
     )
 
 
+def set_brain_encoder_trainable(model, trainable):
+    """冻结时同时固定脑信号编码器的随机层和归一化统计。"""
+    trainable = bool(trainable)
+    for parameter in model.brain_encoder.parameters():
+        parameter.requires_grad_(trainable)
+    model.brain_encoder.train(trainable)
+
+
+def _file_sha256(path):
+    """计算检查点摘要，固定预热来源。"""
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def load_pretrained_brain_encoder(
+    model,
+    checkpoint_path,
+    config,
+    channel_names,
+    channel_positions,
+):
+    """仅载入同一 LibriBrain100 合同下 CNN-only 检查点的脑信号编码器。"""
+    checkpoint_path = Path(checkpoint_path).resolve()
+    checkpoint = load_checkpoint(checkpoint_path, map_location="cpu")
+    if checkpoint.get("task") != "word_decoding/LibriBrain100":
+        raise ValueError(f"预热来源不是 LibriBrain100 检查点：{checkpoint_path}")
+    source_model_config = checkpoint.get("model_config", {})
+    if bool(source_model_config.get("use_transformer", True)):
+        raise ValueError("预热来源必须是 CNN-only 检查点。")
+    if source_model_config.get("embedding_dimension") != config["model"].get(
+        "embedding_dimension"
+    ):
+        raise ValueError("预热 CNN 与目标模型的输出维度不同。")
+    if source_model_config.get("conv") != config["model"].get("conv"):
+        raise ValueError("预热 CNN 与目标模型的卷积结构不同。")
+
+    source_dataset = checkpoint.get("dataset_contract", {})
+    for field in ("root", "task", "split", "window_seconds", "target_sampling_rate_hz"):
+        if source_dataset.get(field) != config["dataset"].get(field):
+            raise ValueError(f"预热 CNN 的数据合同在 {field} 上不同。")
+    if tuple(checkpoint.get("channel_names", ())) != tuple(channel_names):
+        raise ValueError("预热 CNN 与当前数据的通道顺序不同。")
+    source_positions = np.asarray(checkpoint.get("channel_positions", ()))
+    target_positions = np.asarray(channel_positions)
+    if source_positions.shape != target_positions.shape or not np.allclose(
+        source_positions, target_positions, rtol=0.0, atol=1e-7
+    ):
+        raise ValueError("预热 CNN 与当前数据的通道位置不同。")
+
+    prefix = "brain_encoder."
+    encoder_state = {
+        key[len(prefix) :]: value
+        for key, value in checkpoint["model_state"].items()
+        if key.startswith(prefix)
+    }
+    if not encoder_state:
+        raise ValueError("预热检查点不包含 brain_encoder 参数。")
+    model.brain_encoder.load_state_dict(encoder_state, strict=True)
+    return {
+        "method": "cnn_only_best_checkpoint_brain_encoder_only",
+        "source_checkpoint": str(checkpoint_path),
+        "source_checkpoint_sha256": _file_sha256(checkpoint_path),
+        "source_epoch": int(checkpoint["epoch"]),
+        "source_macro_r_at_10": checkpoint.get("metrics", {}).get(
+            "retrieval_acc10_vocab=libribrain50_macro"
+        ),
+        "loaded_loss_state": False,
+        "loaded_transformer_state": False,
+    }
+
+
 def move_batch(batch, device):
     return (
         batch["meg"].to(device, non_blocking=True),
@@ -276,8 +358,19 @@ def move_batch(batch, device):
     )
 
 
-def train_one_epoch(model, loss_module, loader, optimizer, scaler, device, config):
+def train_one_epoch(
+    model,
+    loss_module,
+    loader,
+    optimizer,
+    scaler,
+    device,
+    config,
+    freeze_brain_encoder=False,
+):
     model.train()
+    if freeze_brain_encoder:
+        model.brain_encoder.eval()
     loss_module.train()
     use_amp = bool(config.get("amp", True)) and device.type == "cuda"
     loss_sum = 0.0
@@ -367,6 +460,8 @@ def checkpoint_payload(
     channel_positions,
     optimizer=None,
     scheduler=None,
+    initialization_audit=None,
+    training_phase=None,
 ):
     payload = {
         "format_version": 1,
@@ -394,6 +489,10 @@ def checkpoint_payload(
         payload["optimizer_state"] = optimizer.state_dict()
     if scheduler is not None:
         payload["scheduler_state"] = scheduler.state_dict()
+    if initialization_audit is not None:
+        payload["initialization_audit"] = initialization_audit
+    if training_phase is not None:
+        payload["training_phase"] = training_phase
     return payload
 
 
@@ -416,12 +515,17 @@ def parameter_count(module):
 
 def run_training(config, smoke=False, save=True, force_cache=False):
     training_config = dict(config["training"])
+    staged_training = bool(
+        training_config.get("pretrained_brain_encoder_checkpoint")
+    )
     if smoke:
-        training_config["epochs"] = 1
-        training_config["patience"] = 1
+        training_config["epochs"] = 2 if staged_training else 1
+        training_config["patience"] = training_config["epochs"]
         training_config["batch_size"] = min(
             int(training_config["batch_size"]), 16
         )
+        if staged_training:
+            training_config["freeze_brain_encoder_epochs"] = 1
     seed = int(training_config["seed"])
     set_seed(seed)
     device = choose_device(training_config.get("device", "auto"))
@@ -453,7 +557,29 @@ def run_training(config, smoke=False, save=True, force_cache=False):
         config["model"],
     ).to(device)
     loss_module = build_siglip_loss(config["loss"]).to(device)
+    initialization_audit = None
+    if staged_training:
+        if model.context_transformer is None:
+            raise ValueError("CNN 预热要求目标模型启用 Transformer。")
+        initialization_audit = load_pretrained_brain_encoder(
+            model,
+            training_config["pretrained_brain_encoder_checkpoint"],
+            config,
+            train_dataset.channel_names,
+            train_dataset.channel_positions,
+        )
     optimizer = build_adamw_for_modules([model, loss_module], training_config)
+    freeze_brain_encoder_epochs = int(
+        training_config.get("freeze_brain_encoder_epochs", 0)
+    )
+    if freeze_brain_encoder_epochs < 0:
+        raise ValueError("freeze_brain_encoder_epochs 不能为负数。")
+    if staged_training and not 0 < freeze_brain_encoder_epochs < int(
+        training_config["epochs"]
+    ):
+        raise ValueError("CNN 预热的冻结轮数必须大于零且小于总轮数。")
+    if not staged_training and freeze_brain_encoder_epochs:
+        raise ValueError("未提供预热检查点时不能冻结 brain_encoder。")
     scheduler = build_cosine_annealing_scheduler(
         optimizer,
         int(training_config["epochs"]),
@@ -478,6 +604,8 @@ def run_training(config, smoke=False, save=True, force_cache=False):
     history = []
     for epoch in range(int(training_config["epochs"])):
         train_sampler.set_epoch(epoch)
+        encoder_is_frozen = epoch < freeze_brain_encoder_epochs
+        set_brain_encoder_trainable(model, not encoder_is_frozen)
         train_loss = train_one_epoch(
             model,
             loss_module,
@@ -486,6 +614,7 @@ def run_training(config, smoke=False, save=True, force_cache=False):
             scaler,
             device,
             training_config,
+            freeze_brain_encoder=encoder_is_frozen,
         )
         validation_metrics, _ = evaluate_loader(
             model,
@@ -524,6 +653,11 @@ def run_training(config, smoke=False, save=True, force_cache=False):
                         validation_metrics,
                         train_dataset.channel_names,
                         train_dataset.channel_positions,
+                        initialization_audit=initialization_audit,
+                        training_phase={
+                            "freeze_brain_encoder_epochs": freeze_brain_encoder_epochs,
+                            "encoder_frozen_this_epoch": encoder_is_frozen,
+                        },
                     ),
                 )
             else:
@@ -545,6 +679,11 @@ def run_training(config, smoke=False, save=True, force_cache=False):
                     train_dataset.channel_positions,
                     optimizer=optimizer,
                     scheduler=scheduler,
+                    initialization_audit=initialization_audit,
+                    training_phase={
+                        "freeze_brain_encoder_epochs": freeze_brain_encoder_epochs,
+                        "encoder_frozen_this_epoch": encoder_is_frozen,
+                    },
                 ),
             )
         if epochs_without_improvement >= int(training_config["patience"]):
@@ -566,6 +705,8 @@ def run_training(config, smoke=False, save=True, force_cache=False):
         "meg_shape": [train_dataset.channel_count, train_dataset.window_samples],
         "model_parameter_count": parameter_count(model),
         "loss_parameter_count": parameter_count(loss_module),
+        "initialization_audit": initialization_audit,
+        "freeze_brain_encoder_epochs": freeze_brain_encoder_epochs,
         "selection_metric": selection_metric,
         "best_epoch": best_epoch,
         "best_score": best_score,

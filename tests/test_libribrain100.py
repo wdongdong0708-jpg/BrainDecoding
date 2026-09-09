@@ -15,12 +15,27 @@ from losses import build_siglip_loss
 from metrics import fixed_vocabulary_retrieval_metrics
 from models import build_brain_embedding_model
 from tasks.word_decoding.LibriBrain100.evaluate import evaluate_checkpoint
-from tasks.word_decoding.LibriBrain100.train import run_training
+from tasks.word_decoding.LibriBrain100.train import load_config, run_training
 
 
 def test_word_cleanup_matches_source_contract():
     assert normalize_word(" We're! ") == "we're"
     assert normalize_word("co-operate") == "co-operate"
+
+
+def test_cnn_warm_start_config_only_changes_training_stage():
+    base = load_config("configs/LibriBrain100_1s.yaml")
+    warm = load_config("configs/LibriBrain100_1s_cnn_warm_start.yaml")
+    assert warm["dataset"] == base["dataset"]
+    assert warm["cache"] == base["cache"]
+    assert warm["text_embedding"] == base["text_embedding"]
+    assert warm["model"] == base["model"]
+    assert warm["loss"] == base["loss"]
+    assert warm["evaluation"] == base["evaluation"]
+    assert warm["training"]["freeze_brain_encoder_epochs"] == 1
+    assert warm["training"]["pretrained_brain_encoder_checkpoint"].endswith(
+        "word_decoding_1s_conv_only\\best.pt"
+    )
 
 
 def test_recording_materialization(tmp_path):
