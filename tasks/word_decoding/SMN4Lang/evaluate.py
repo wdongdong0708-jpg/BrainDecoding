@@ -19,6 +19,7 @@ except ImportError:  # 通过脚本或 run.py 直接加载时没有父包。
 
 from datasets import SMN4Lang as dataset_module
 from models import build_brain_embedding_model
+from ovmi_metrics import fixed_vocabulary_ovmi_metrics
 
 
 def evaluate_checkpoint(
@@ -67,12 +68,20 @@ def evaluate_checkpoint(
     model.to(device)
 
     top_ks = tuple(int(value) for value in config["training"].get("top_ks", [1, 10]))
-    metrics, _ = training.evaluate_loader(
+    metrics, encoded = training.evaluate_loader(
         model,
         loader,
         device,
         top_ks=top_ks,
         amp=config["training"].get("amp", True),
+    )
+    metrics["ovmi"] = fixed_vocabulary_ovmi_metrics(
+        encoded["predictions"],
+        encoded["targets"],
+        encoded["words"],
+        dataset_module.SMN4LANG50_VOCABULARY,
+        config.get("evaluation", {}).get("ovmi", {}),
+        base_dir=PROJECT_ROOT,
     )
     summary = {
         "status": "smoke_evaluation_completed" if smoke else "evaluation_completed",

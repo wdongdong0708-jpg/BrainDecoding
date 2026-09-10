@@ -25,6 +25,9 @@ CHINESEEEG2_AUDIT_CONFIGS = {
     "ChineseEEG2ActualReadingTwoSubjects": "configs/ChineseEEG2_LittlePrince_sub01_sub02_actual_reading_1s_cnn_warm_start.yaml",
     "ChineseEEG2ActualReadingFourSubjects": "configs/ChineseEEG2_LittlePrince_sub01_sub04_actual_reading_1s_cnn_warm_start.yaml",
     "ChineseEEG2ActualReadingFourSubjectsRandomInit": "configs/ChineseEEG2_LittlePrince_sub01_sub04_actual_reading_1s.yaml",
+    "ChineseEEG2ActualReadingMaleFourSubjects": "configs/ChineseEEG2_LittlePrince_sub05_sub08_actual_reading_1s_cnn_warm_start.yaml",
+    "ChineseEEG2ActualReadingEightSubjects": "configs/ChineseEEG2_LittlePrince_sub01_sub08_actual_reading_1s_cnn_warm_start.yaml",
+    "ChineseEEG2ActualReadingEightSubjectsSemantic": "configs/ChineseEEG2_LittlePrince_sub01_sub08_actual_reading_1s_semantic_cnn_warm_start.yaml",
 }
 
 

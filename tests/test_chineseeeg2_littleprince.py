@@ -239,6 +239,83 @@ def test_实际朗读事件按配置展开到两名女声一受试者(tmp_path, 
     assert table.groupby("subject_id")["source_word_id"].nunique().eq(6).all()
 
 
+def test_两种声音事件源合并后统一冻结候选词(tmp_path, monkeypatch):
+    """f1和m1应各自匹配受试者，并在合并训练集上统一统计词频。"""
+    config = 创建合成任务(tmp_path)
+    config["subjects"] = ["sub-01", "sub-05"]
+    for chapter, run in ((1, 11), (2, 12), (3, 13)):
+        创建记录文件(Path(config["root"]), "sub-05", run)
+    config["actual_reading_sources"] = [
+        {
+            "alignment_path": str(tmp_path / "f1.xlsx"),
+            "expected_source_event_count": 6,
+            "voice_version": "f1",
+            "subjects": ["sub-01"],
+        },
+        {
+            "alignment_path": str(tmp_path / "m1.xlsx"),
+            "expected_source_event_count": 6,
+            "voice_version": "m1",
+            "subjects": ["sub-05"],
+        },
+    ]
+    for source in config["actual_reading_sources"]:
+        Path(source["alignment_path"]).write_bytes(b"x")
+    source = pd.DataFrame([
+        {"音频编号": chapter, "音频文件": f"audio_{chapter}.wav", "原表行号": 10 + chapter,
+         "词": word, "文本起始位置": index, "文本结束位置": index,
+         "开始时间（秒）": 1.0 + index, "结束时间（秒）": 1.0 + index,
+         "质检提示": np.nan, "时间戳来源": "模型对齐估计"}
+        for chapter, words in ((1, ("甲", "乙")), (2, ("甲", "乙")), (3, ("甲", "乙")))
+        for index, word in enumerate(words)
+    ])
+    monkeypatch.setattr(dataset_module.pd, "read_excel", lambda *args, **kwargs: source.copy())
+
+    table = dataset_module.构建实际朗读事件表(config)
+
+    assert len(table) == 12
+    assert table.groupby("voice_version")["subject_id"].unique().map(tuple).to_dict() == {
+        "f1": ("sub-01",), "m1": ("sub-05",)
+    }
+    assert set(table.loc[table["vocabulary_rank"].gt(0), "normalized_word"]) == {"甲", "乙"}
+
+
+def test_长度受控语义片段跨行合并并在自然边界切分():
+    """短行应跨行合并，达到优先长度后才在分句边界切分。"""
+    frame = pd.DataFrame(
+        {
+            "subject_id": ["sub-01"] * 7,
+            "run": [11] * 7,
+            "chapter": [1] * 7,
+            "material_line": [10, 10, 11, 11, 12, 12, 12],
+            "aligned_start_seconds": np.arange(7, dtype=float),
+            "aligned_stop_seconds": np.arange(7, dtype=float) + 0.5,
+            "sentence_uid": ["原分组"] * 7,
+            "context_chunk_index": [0] * 7,
+        }
+    )
+    texts = {
+        (1, 10): "我六岁那年，",
+        (1, 11): "在一本书上，",
+        (1, 12): "看见一幅插图。",
+    }
+
+    grouped = dataset_module.构建长度受控语义片段(
+        frame,
+        texts,
+        {"preferred_words": 4, "maximum_words": 6, "maximum_seconds": 15.0},
+    )
+
+    groups = list(grouped.groupby("sentence_uid", sort=False))
+    assert [len(group) for _, group in groups] == [4, 3]
+    assert groups[0][1]["material_line"].nunique() == 2
+    assert groups[0][1]["context_boundary_reason"].eq(
+        "clause_end_after_preferred_length"
+    ).all()
+    assert groups[1][1]["context_boundary_reason"].eq("sentence_end").all()
+    assert grouped["context_grouping"].eq("bounded_semantic_v1").all()
+
+
 def test_记录缓存按合同降采样且不重复滤波(tmp_path):
     config = 创建合成任务(tmp_path)
     source_path = dataset_module.记录路径(config, "sub-01", 11)
@@ -268,19 +345,34 @@ def test_actual_reading配置保持单一数据合同():
             "ChineseEEG2_LittlePrince_sub01_actual_reading_1s",
             ["sub-01"],
             {"train": 10668, "val": 1769, "test": 1669},
+            252,
         ),
         (
             "ChineseEEG2_LittlePrince_sub01_sub02_actual_reading_1s",
             ["sub-01", "sub-02"],
             {"train": 21336, "val": 3538, "test": 3338},
+            252,
         ),
         (
             "ChineseEEG2_LittlePrince_sub01_sub04_actual_reading_1s",
             ["sub-01", "sub-02", "sub-03", "sub-04"],
             {"train": 42672, "val": 7076, "test": 6676},
+            252,
+        ),
+        (
+            "ChineseEEG2_LittlePrince_sub05_sub08_actual_reading_1s",
+            ["sub-05", "sub-06", "sub-07", "sub-08"],
+            {"train": 40672, "val": 7056, "test": 4224},
+            324,
+        ),
+        (
+            "ChineseEEG2_LittlePrince_sub01_sub08_actual_reading_1s",
+            ["sub-01", "sub-02", "sub-03", "sub-04", "sub-05", "sub-06", "sub-07", "sub-08"],
+            {"train": 81620, "val": 14132, "test": 8480},
+            649,
         ),
     )
-    for stem, subjects, counts in scopes:
+    for stem, subjects, counts, freeze_updates in scopes:
         base = 载入配置(project_root / "configs" / f"{stem}.yaml")
         cnn = 载入配置(project_root / "configs" / f"{stem}_cnn_only.yaml")
         warm = 载入配置(project_root / "configs" / f"{stem}_cnn_warm_start.yaml")
@@ -291,13 +383,19 @@ def test_actual_reading配置保持单一数据合同():
         assert base["dataset"]["expected_trainable_counts"] == counts
         assert base["dataset"]["window_seconds"] == 1.0
         assert base["dataset"]["eligibility_window_seconds"] == 1.0
+        if subjects[0] == "sub-05":
+            assert base["dataset"]["voice_version"] == "m1"
+            assert base["dataset"]["excluded_chapters"] == [14, 27]
+        if len(subjects) == 8:
+            assert [source["voice_version"] for source in base["dataset"]["actual_reading_sources"]] == ["f1", "m1"]
+            assert base["dataset"]["excluded_chapters"] == [14, 27]
         assert base["model"]["transformer"]["depth"] == 4
         assert base["model"]["transformer"]["heads"] == 8
         assert base["training"]["max_updates"] == 3200
         assert base["training"]["scheduler_total_updates"] == 6400
         assert cnn["model"]["use_transformer"] is False
         assert warm["model"]["use_transformer"] is True
-        assert warm["training"]["freeze_brain_encoder_updates"] == 252
+        assert warm["training"]["freeze_brain_encoder_updates"] == freeze_updates
         for section in ("dataset", "cache", "text_embedding", "loss", "evaluation"):
             assert cnn[section] == base[section]
             assert warm[section] == base[section]
@@ -307,6 +405,45 @@ def test_actual_reading配置保持单一数据合同():
         project_root / "configs" / "ChineseEEG2_LittlePrince_sub01_actual_reading_1s.yaml"
     )
     assert generic["dataset"] == single["dataset"]
+
+    semantic = 载入配置(
+        project_root
+        / "configs"
+        / "ChineseEEG2_LittlePrince_sub01_sub08_actual_reading_1s_semantic_cnn_warm_start.yaml"
+    )
+    row = 载入配置(
+        project_root
+        / "configs"
+        / "ChineseEEG2_LittlePrince_sub01_sub08_actual_reading_1s_cnn_warm_start.yaml"
+    )
+    assert semantic["dataset"]["context_grouping"] == "bounded_semantic_v1"
+    assert semantic["dataset"]["semantic_context"] == {
+        "actual_reading_line_sheet_name": "逐行对照",
+        "preferred_words": 16,
+        "maximum_words": 32,
+        "maximum_seconds": 15.0,
+    }
+    assert semantic["cache"]["event_table"] != row["cache"]["event_table"]
+    assert semantic["training"]["output_dir"] != row["training"]["output_dir"]
+    for section in ("model", "text_embedding", "loss", "evaluation"):
+        assert semantic[section] == row[section]
+    for key in (
+        "subjects",
+        "actual_reading_sources",
+        "excluded_chapters",
+        "expected_trainable_counts",
+        "split",
+        "window_seconds",
+        "eligibility_window_seconds",
+    ):
+        assert semantic["dataset"][key] == row["dataset"][key]
+    for key in (
+        "pretrained_brain_encoder_checkpoint",
+        "freeze_brain_encoder_updates",
+        "max_updates",
+        "scheduler_total_updates",
+    ):
+        assert semantic["training"][key] == row["training"][key]
 
 
 def test_预热检查点只载入脑编码器(tmp_path):

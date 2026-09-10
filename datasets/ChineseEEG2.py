@@ -182,13 +182,130 @@ def 训练集高频词(event_table, vocabulary_size) -> tuple[tuple[str, ...], d
     return vocabulary, {word: int(counts[word]) for word in vocabulary}
 
 
-def 构建实际朗读事件表(config) -> pd.DataFrame:
-    """从实际朗读工作簿构建一秒事件，质检警告只记录而不删词。"""
+def 读取实际朗读逐行文本(workbook_path, config) -> dict[tuple[int, int], str]:
+    """读取工作簿中的实际阅读文本，保留用于判断语境边界的标点。"""
+    lines = pd.read_excel(
+        workbook_path,
+        sheet_name=config.get("actual_reading_line_sheet_name", "逐行对照"),
+    )
+    required = {"音频编号", "原表行号", "实际阅读"}
+    missing = sorted(required - set(lines.columns))
+    if missing:
+        raise ValueError(f"实际朗读逐行页缺少字段：{missing}")
+    lines = lines[
+        pd.to_numeric(lines["音频编号"], errors="raise").between(1, 27)
+    ].copy()
+    lines["音频编号"] = pd.to_numeric(lines["音频编号"], errors="raise").astype(int)
+    lines["原表行号"] = pd.to_numeric(lines["原表行号"], errors="raise").astype(int)
+    if lines.duplicated(["音频编号", "原表行号"]).any():
+        raise ValueError("实际朗读逐行页包含重复的章节与材料行。")
+    texts = {
+        (int(row["音频编号"]), int(row["原表行号"])): str(row["实际阅读"])
+        for _, row in lines.iterrows()
+        if pd.notna(row["实际阅读"])
+    }
+    if not texts:
+        raise ValueError("实际朗读逐行页没有可用文本。")
+    return texts
+
+
+def 构建长度受控语义片段(frame, texts, settings):
+    """按实际阅读标点跨行合并，并用词数和时间约束片段长度。"""
+    preferred = int(settings["preferred_words"])
+    maximum = int(settings["maximum_words"])
+    maximum_seconds = float(settings["maximum_seconds"])
+    if not 0 < preferred <= maximum or maximum_seconds <= 0:
+        raise ValueError("语境词数和时间上限必须为正数，优先长度不能超过上限。")
+
+    frame = frame.copy()
+    frame["context_boundary_reason"] = ""
+    missing_lines = set()
+    for _, recording in frame.groupby(
+        ["subject_id", "run", "chapter"], sort=False
+    ):
+        chunks = []
+        pending = []
+        # 材料行只用于恢复标点，不再直接充当注意力边界。
+        for _, line in recording.groupby("material_line", sort=False):
+            first = line.iloc[0]
+            key = (int(first["chapter"]), int(first["material_line"]))
+            if key not in texts:
+                missing_lines.add(key)
+                continue
+            text = texts[key].rstrip().rstrip("”’」』\"'）)]】").rstrip()
+            indices = line.index.tolist()
+            start = (
+                float(frame.loc[pending[0], "aligned_start_seconds"])
+                if pending
+                else float(first["aligned_start_seconds"])
+            )
+            span = float(line.iloc[-1]["aligned_stop_seconds"]) - start
+            if pending and (
+                len(pending) + len(indices) > maximum or span > maximum_seconds
+            ):
+                chunks.append((pending, "length_limit_at_clause_boundary"))
+                pending = []
+            for index in indices:
+                start_index = pending[0] if pending else index
+                span = float(frame.loc[index, "aligned_stop_seconds"]) - float(
+                    frame.loc[start_index, "aligned_start_seconds"]
+                )
+                if pending and (len(pending) >= maximum or span > maximum_seconds):
+                    chunks.append((pending, "hard_length_limit"))
+                    pending = []
+                pending.append(index)
+            strong = text.endswith(tuple("。！？!?；;"))
+            soft = text.endswith(tuple("，,、"))
+            if strong or (soft and len(pending) >= preferred):
+                reason = (
+                    "sentence_end"
+                    if strong
+                    else "clause_end_after_preferred_length"
+                )
+                chunks.append((pending, reason))
+                pending = []
+        if pending:
+            chunks.append((pending, "recording_end"))
+        for number, (indices, reason) in enumerate(chunks):
+            first = frame.loc[indices[0]]
+            uid = (
+                f"{first['subject_id']}|run-{int(first['run'])}"
+                f"|chapter-{int(first['chapter'])}|semantic-{number}"
+            )
+            frame.loc[indices, "sentence_uid"] = uid
+            frame.loc[indices, "context_chunk_index"] = number
+            frame.loc[indices, "context_boundary_reason"] = reason
+    if missing_lines:
+        preview = sorted(missing_lines)[:5]
+        raise ValueError(f"语境逐行文本缺少词事件对应的材料行：{preview}")
+    frame["context_grouping"] = "bounded_semantic_v1"
+    return frame
+
+
+def _构建单一实际朗读事件表(config) -> pd.DataFrame:
+    """从一份实际朗读工作簿构建一秒事件。"""
     if config.get("additional_filter") is not None:
         raise ValueError("预处理输入不允许在本任务中重复滤波。")
     workbook_path = Path(config["alignment_path"])
     if not workbook_path.exists():
         raise FileNotFoundError(f"实际朗读工作簿不存在：{workbook_path}")
+    context_grouping = str(
+        config.get(
+            "context_grouping", "actual_reading_row_then_contiguous_chunks"
+        )
+    )
+    supported_groupings = {
+        "actual_reading_row_then_contiguous_chunks",
+        "bounded_semantic_v1",
+    }
+    if context_grouping not in supported_groupings:
+        raise ValueError(f"不支持的实际朗读语境分组方式：{context_grouping}")
+    line_texts = None
+    if context_grouping == "bounded_semantic_v1":
+        settings = config.get("semantic_context")
+        if not isinstance(settings, dict):
+            raise ValueError("长度受控语义片段缺少 semantic_context 参数。")
+        line_texts = 读取实际朗读逐行文本(workbook_path, settings)
     frame = pd.read_excel(
         workbook_path, sheet_name=config.get("actual_reading_sheet_name", "词级时间戳")
     )
@@ -222,13 +339,21 @@ def 构建实际朗读事件表(config) -> pd.DataFrame:
     frame["chapter"] = frame["chapter"].astype(int)
     frame["run"] = [int(f"1{chapter}") if chapter <= 14 else int(f"2{chapter - 14}")
                     for chapter in frame["chapter"]]
-    frame["voice_version"] = "f1"
-    frame["speaker_gender"] = "female"
+    voice_version = str(config.get("voice_version", "f1"))
+    voice_contracts = {
+        "f1": ({"sub-01", "sub-02", "sub-03", "sub-04"}, "female"),
+        "m1": ({"sub-05", "sub-06", "sub-07", "sub-08"}, "male"),
+    }
+    if voice_version not in voice_contracts:
+        raise ValueError(f"不支持的实际朗读声音版本：{voice_version}")
+    allowed_subjects, speaker_gender = voice_contracts[voice_version]
+    frame["voice_version"] = voice_version
+    frame["speaker_gender"] = speaker_gender
     frame["小说"] = "littleprince"
     frame["word_index"] = frame.groupby("chapter", sort=False).cumcount() + 1
     frame["chapter_word_index"] = frame["word_index"]
     frame["source_word_id"] = [
-        f"actual-f1-c{chapter:02d}-w{word_index:05d}"
+        f"actual-{voice_version}-c{chapter:02d}-w{word_index:05d}"
         for chapter, word_index in zip(frame["chapter"], frame["word_index"])
     ]
     frame["normalized_word"] = frame["word"].map(normalize_word)
@@ -242,9 +367,11 @@ def 构建实际朗读事件表(config) -> pd.DataFrame:
     subjects = tuple(sorted(str(value) for value in config["subjects"]))
     if not subjects:
         raise ValueError("实际朗读事件至少需要配置一名受试者。")
-    unsupported = sorted(set(subjects) - {"sub-01", "sub-02", "sub-03", "sub-04"})
+    unsupported = sorted(set(subjects) - allowed_subjects)
     if unsupported:
-        raise ValueError(f"f1 实际朗读工作簿不能用于非女声一受试者：{unsupported}")
+        raise ValueError(
+            f"{voice_version} 实际朗读工作簿不能用于合同外受试者：{unsupported}"
+        )
     frame = pd.concat(
         [frame.assign(subject_id=subject_id) for subject_id in subjects],
         ignore_index=True,
@@ -308,8 +435,19 @@ def 构建实际朗读事件表(config) -> pd.DataFrame:
         frame["window_start_source_sample"].ge(0)
         & frame["window_stop_source_sample"].le(frame["source_sample_count"])
     )
-    if not frame["window_complete"].all():
-        raise ValueError(f"有 {int((~frame['window_complete']).sum())} 个事件的一秒窗口超出 EEG 记录，为避免静默丢词已停止。")
+    excluded_chapters = {
+        int(value) for value in config.get("excluded_chapters", ())
+    }
+    unknown_exclusions = sorted(excluded_chapters - set(split_mapping))
+    if unknown_exclusions:
+        raise ValueError(f"显式剔除列表包含未知章节：{unknown_exclusions}")
+    chapter_excluded = frame["chapter"].isin(excluded_chapters)
+    unexpected_incomplete = ~frame["window_complete"] & ~chapter_excluded
+    if unexpected_incomplete.any():
+        raise ValueError(
+            f"有 {int(unexpected_incomplete.sum())} 个未获授权剔除事件的一秒窗口超出 EEG 记录，"
+            "为避免静默丢词已停止。"
+        )
 
     frame["alignment_status"] = "actual_reading_text_qwen_estimated_timing"
     frame["automatic_qc_pass"] = frame["timestamp_qc_prompt"].isna()
@@ -317,11 +455,18 @@ def 构建实际朗读事件表(config) -> pd.DataFrame:
     frame["mapping_status"] = "chapter_to_subject_recording_direct"
     frame["text_verification_status"] = "actual_reading_workbook"
     frame["hardware_delay_corrected"] = False
-    frame["manual_excluded"] = False
-    frame["manual_exclusion_reason"] = ""
-    frame["primary_inclusion"] = True
-    frame["is_trainable"] = True
-    frame["exclusion_reason"] = ""
+    exclusion_reason = str(
+        config.get("excluded_chapter_reason", "配置明确剔除整章")
+    )
+    frame["manual_excluded"] = chapter_excluded
+    frame["manual_exclusion_reason"] = np.where(
+        chapter_excluded, exclusion_reason, ""
+    )
+    frame["primary_inclusion"] = ~chapter_excluded
+    frame["is_trainable"] = ~chapter_excluded & frame["window_complete"]
+    frame["exclusion_reason"] = np.where(
+        chapter_excluded, exclusion_reason, ""
+    )
     frame["split_group_id"] = frame["chapter"].map(lambda value: f"chapter-{int(value):02d}")
     frame["source_sentence_uid"] = (
         frame["subject_id"] + "|run-" + frame["run"].astype(str)
@@ -331,6 +476,10 @@ def 构建实际朗读事件表(config) -> pd.DataFrame:
     frame["context_chunk_index"] = frame.groupby("source_sentence_uid", sort=False).cumcount() // int(config.get("max_context_words", 128))
     frame["sentence_uid"] = frame["source_sentence_uid"] + "|chunk-" + frame["context_chunk_index"].astype(str)
     frame["context_grouping"] = "actual_reading_row_then_contiguous_chunks"
+    if context_grouping == "bounded_semantic_v1":
+        frame = 构建长度受控语义片段(
+            frame, line_texts, config["semantic_context"]
+        )
     frame["event_id"] = frame["subject_id"] + "|" + frame["voice_version"] + "|" + frame["source_word_id"]
     if frame["event_id"].duplicated().any():
         raise ValueError("实际朗读事件表包含重复 event_id。")
@@ -341,6 +490,61 @@ def 构建实际朗读事件表(config) -> pd.DataFrame:
     frame["timing_status"] = "actual_reading_audio_clock_used_as_eeg_clock"
     frame["timing_source_clock"] = "audio_file_zero_seconds_direct_to_preprocessed_eeg"
     return frame
+
+
+def 构建实际朗读事件表(config) -> pd.DataFrame:
+    """构建单声音或多声音实际朗读事件，并统一冻结训练词表。"""
+    sources = config.get("actual_reading_sources")
+    if not sources:
+        return _构建单一实际朗读事件表(config)
+    if not isinstance(sources, list) or len(sources) < 2:
+        raise ValueError("多声音实际朗读合同至少需要两项事件源。")
+
+    frames = []
+    reference_schema = None
+    for source in sources:
+        source_config = dict(config)
+        source_config.pop("actual_reading_sources", None)
+        source_config.pop("expected_trainable_counts", None)
+        source_config.update(source)
+        current = _构建单一实际朗读事件表(source_config)
+        first_source = Path(config["root"]) / str(current["vhdr_relpath"].iloc[0])
+        schema = 检查记录结构(first_source)
+        if reference_schema is None:
+            reference_schema = schema
+        elif (
+            schema["channel_names"] != reference_schema["channel_names"]
+            or not np.allclose(
+                schema["channel_positions"],
+                reference_schema["channel_positions"],
+                rtol=0,
+                atol=1e-7,
+            )
+        ):
+            raise ValueError("不同声音事件源的通道或电极坐标合同不一致。")
+        frames.append(current)
+
+    frame = pd.concat(frames, ignore_index=True)
+    configured_subjects = tuple(sorted(str(value) for value in config["subjects"]))
+    observed_subjects = tuple(sorted(frame["subject_id"].astype(str).unique()))
+    if observed_subjects != configured_subjects:
+        raise ValueError(
+            f"多声音事件源受试者与总合同不一致：{observed_subjects} != {configured_subjects}"
+        )
+    if frame["event_id"].duplicated().any():
+        raise ValueError("多声音实际朗读事件表包含重复 event_id。")
+
+    vocabulary, _ = 训练集高频词(frame, config["vocabulary_size"])
+    rank = {word: index + 1 for index, word in enumerate(vocabulary)}
+    frame["in_chineseeeg2_littleprince50"] = frame["normalized_word"].isin(
+        vocabulary
+    )
+    frame["vocabulary_rank"] = (
+        frame["normalized_word"].map(rank).fillna(0).astype(int)
+    )
+    return frame.sort_values(
+        ["voice_version", "chapter", "word_index", "subject_id"]
+    ).reset_index(drop=True)
 
 
 def 审计事件表(event_table, config) -> dict:
@@ -379,16 +583,40 @@ def 审计事件表(event_table, config) -> dict:
     }:
         raise ValueError(f"有效事件计数漂移：实际 {counts}，预期 {expected_counts}。")
     group_sizes = trainable.groupby(["split", "sentence_uid"]).size()
-    source_path = Path(config["alignment_path"])
+    source_specs = config.get("actual_reading_sources") or [config]
+    source_paths = [Path(source["alignment_path"]).resolve() for source in source_specs]
+    source_hashes = {str(path): 文件摘要(path) for path in source_paths}
     return {
         "status": "event_table_validated",
         "context_grouping": config["context_grouping"],
+        "semantic_context": config.get("semantic_context"),
         "raw_eeg_loaded": False,
         "test_eeg_loaded": False,
-        "alignment_path": str(source_path.resolve()),
-        "alignment_sha256": 文件摘要(source_path),
+        "alignment_path": (
+            str(source_paths[0])
+            if len(source_paths) == 1
+            else [str(path) for path in source_paths]
+        ),
+        "alignment_sha256": (
+            source_hashes[str(source_paths[0])]
+            if len(source_paths) == 1
+            else source_hashes
+        ),
         "row_count": int(len(event_table)),
         "primary_inclusion_count": int(event_table["primary_inclusion"].sum()),
+        "manual_excluded_count": int(event_table["manual_excluded"].sum()),
+        "manual_excluded_chapters": sorted(
+            event_table.loc[
+                event_table["manual_excluded"].astype(bool), "chapter"
+            ].unique().astype(int).tolist()
+        ),
+        "incomplete_window_count": int((~event_table["window_complete"]).sum()),
+        "incomplete_window_excluded_count": int(
+            (
+                ~event_table["window_complete"]
+                & event_table["manual_excluded"].astype(bool)
+            ).sum()
+        ),
         "automatic_qc_pass_count": int(event_table["automatic_qc_pass"].sum()),
         "hardware_delay_corrected_count": int(
             event_table["hardware_delay_corrected"].sum()
@@ -866,5 +1094,3 @@ class ChineseEEG2LittlePrinceWordDataset(Dataset):
             "event_id": str(row["event_id"]),
             "recording_id": str(row["recording_id"]),
         }
-
-

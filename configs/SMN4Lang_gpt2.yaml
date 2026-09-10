@@ -115,6 +115,11 @@ training:
 evaluation:
   default_split: val
   zero_meg_control: false
+  ovmi:
+    enabled: true
+    method: full
+    reference: references/subtlex_ch.json
+    language: zh
 
 provenance:
   dataset: OpenNeuro ds004078 version 1.2.1

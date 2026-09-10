@@ -91,6 +91,34 @@ def retrieval_metrics_with_ranks(query_embeddings, text_embeddings, text_ids, to
     return metrics, ranks
 
 
+def _fixed_vocabulary_inputs(
+    query_embeddings,
+    target_embeddings,
+    target_words,
+    vocabulary,
+):
+    """准备共享的固定词表查询、候选和原始行索引。"""
+    queries = _as_numpy(query_embeddings).astype(np.float32, copy=False)
+    targets = _as_numpy(target_embeddings).astype(np.float32, copy=False)
+    words = np.asarray([str(word).lower() for word in target_words])
+    vocabulary = {str(word).lower() for word in vocabulary}
+    selected = np.flatnonzero(np.isin(words, list(vocabulary)))
+    if len(selected) == 0:
+        raise ValueError("评估 split 中没有固定词表里的查询词。")
+    selected_queries = queries[selected]
+    selected_targets = targets[selected]
+    selected_words = words[selected]
+    candidates, candidate_words = unique_candidates(selected_targets, selected_words)
+    return (
+        selected_queries,
+        selected_words,
+        candidates,
+        candidate_words,
+        selected,
+        vocabulary,
+    )
+
+
 def fixed_vocabulary_retrieval(
     query_embeddings,
     target_embeddings,
@@ -105,17 +133,19 @@ def fixed_vocabulary_retrieval(
     已出现词获得相同权重。这与 LibriBrain 基线回调一致，不会把同一词的重复
     实例视为不同候选。
     """
-    queries = _as_numpy(query_embeddings).astype(np.float32, copy=False)
-    targets = _as_numpy(target_embeddings).astype(np.float32, copy=False)
-    words = np.asarray([str(word).lower() for word in target_words])
-    vocabulary = {str(word).lower() for word in vocabulary}
-    selected = np.flatnonzero(np.isin(words, list(vocabulary)))
-    if len(selected) == 0:
-        raise ValueError("评估 split 中没有固定词表里的查询词。")
-    selected_queries = queries[selected]
-    selected_targets = targets[selected]
-    selected_words = words[selected]
-    candidates, candidate_words = unique_candidates(selected_targets, selected_words)
+    (
+        selected_queries,
+        selected_words,
+        candidates,
+        candidate_words,
+        selected,
+        vocabulary,
+    ) = _fixed_vocabulary_inputs(
+        query_embeddings,
+        target_embeddings,
+        target_words,
+        vocabulary,
+    )
     ranks = retrieval_ranks(
         selected_queries,
         selected_words,
@@ -142,6 +172,43 @@ def fixed_vocabulary_retrieval(
             f"macro_recall_at_{k}"
         ]
     return summary, ranks, selected
+
+
+def fixed_vocabulary_top1_predictions(
+    query_embeddings,
+    target_embeddings,
+    target_words,
+    vocabulary,
+    chunk_size=512,
+):
+    """返回固定词表查询的真实词、Top-1 预测词和原始行索引。
+
+    候选向量仍由 ``unique_candidates`` 从当前评价 split 的目标向量中
+    产生，匹配规则也与既有固定词表指标相同。这个辅助函数只暴露余弦
+    检索的 Top-1 输出，不改变排名或汇总指标的计算。
+    """
+    (
+        selected_queries,
+        selected_words,
+        candidates,
+        candidate_words,
+        selected,
+        _,
+    ) = _fixed_vocabulary_inputs(
+        query_embeddings,
+        target_embeddings,
+        target_words,
+        vocabulary,
+    )
+    normalized_queries = normalize_rows(selected_queries)
+    normalized_candidates = normalize_rows(candidates)
+    candidate_words = np.asarray(candidate_words)
+    predicted_words = []
+    for start in range(0, len(normalized_queries), int(chunk_size)):
+        stop = min(start + int(chunk_size), len(normalized_queries))
+        similarity = normalized_queries[start:stop] @ normalized_candidates.T
+        predicted_words.extend(candidate_words[np.argmax(similarity, axis=1)])
+    return selected_words.tolist(), [str(word) for word in predicted_words], selected
 
 
 def fixed_vocabulary_retrieval_metrics(

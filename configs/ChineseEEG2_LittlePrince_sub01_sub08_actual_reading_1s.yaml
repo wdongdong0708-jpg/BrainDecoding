@@ -1,0 +1,35 @@
+extends: ChineseEEG2_LittlePrince.yaml
+
+dataset:
+  subjects: [sub-01, sub-02, sub-03, sub-04, sub-05, sub-06, sub-07, sub-08]
+  actual_reading_sources:
+    - alignment_path: D:/code/BrainDecoding/outputs/女声一小王子时间戳/女声一_小王子_实际朗读时间戳.xlsx
+      expected_source_event_count: 14106
+      voice_version: f1
+      subjects: [sub-01, sub-02, sub-03, sub-04]
+    - alignment_path: D:/code/BrainDecoding/outputs/男声一小王子时间戳/男声一_小王子_实际朗读时间戳.xlsx
+      expected_source_event_count: 14017
+      voice_version: m1
+      subjects: [sub-05, sub-06, sub-07, sub-08]
+  # sub-05 的对应记录被截断；八人共同剔除，以保持章节、声音和受试者平衡。
+  excluded_chapters: [14, 27]
+  excluded_chapter_reason: sub-05对应EEG记录被截断，八名受试者共同剔除第14和27章
+  expected_trainable_counts:
+    train: 81620
+    val: 14132
+    test: 8480
+
+cache:
+  event_table: tasks/word_decoding/ChineseEEG2_LittlePrince/cache/ChineseEEG2_LittlePrince_sub01_sub08_actual_reading_1s.csv
+  text_embeddings: tasks/word_decoding/ChineseEEG2_LittlePrince/cache/mengzi_t5_layer_0_5_actual_reading_f1_m1_words.npz
+
+training:
+  output_dir: outputs/ChineseEEG2_LittlePrince/sub-01_to_sub-08/actual_reading_1s/base
+
+provenance:
+  subject_scope: sub-01_to_sub-08_f1_m1_stimuli
+  event_source: two_actual_reading_workbook_word_timestamps
+  timestamp_interpretation: audio_file_seconds_used_directly_as_preprocessed_eeg_seconds
+  timestamp_quality: model_estimated_not_full_book_human_verified
+  event_retention: f1_m1_audio_1_to_27_events_audited_chapters_14_and_27_explicitly_excluded
+

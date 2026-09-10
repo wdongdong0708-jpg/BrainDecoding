@@ -99,6 +99,11 @@ training:
 evaluation:
   default_split: val
   zero_meg_control: false
+  ovmi:
+    enabled: true
+    method: full
+    reference: subtlex_uk
+    language: en
 
 provenance:
   source_repository: https://github.com/neural-processing-lab/dascoli-word-decoding

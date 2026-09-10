@@ -21,6 +21,7 @@ except ImportError:
 
 from datasets import ChineseEEG2 as dataset_module
 from models import build_brain_embedding_model
+from ovmi_metrics import fixed_vocabulary_ovmi_metrics
 
 
 def 验证检查点合同(checkpoint, config, dataset, vocabulary):
@@ -41,6 +42,10 @@ def 验证检查点合同(checkpoint, config, dataset, vocabulary):
     contract = checkpoint.get("dataset_contract", {})
     if contract.get("context_grouping") != config["dataset"]["context_grouping"]:
         raise ValueError("检查点与评估配置的语境分组方式不同。")
+    if contract.get("semantic_context") != config["dataset"].get(
+        "semantic_context"
+    ):
+        raise ValueError("检查点与评估配置的语义片段参数不同。")
     if tuple(contract.get("evaluation_vocabulary", ())) != tuple(vocabulary):
         raise ValueError("检查点与事件表的训练集候选词不同。")
     for key in (
@@ -93,13 +98,21 @@ def 评估检查点(
     model.load_state_dict(checkpoint["model_state"], strict=True)
     model.to(device)
     top_ks = tuple(int(value) for value in config["training"].get("top_ks", [1, 10]))
-    metrics, _ = training.评估数据(
+    metrics, encoded = training.评估数据(
         model,
         loader,
         device,
         vocabulary,
         top_ks=top_ks,
         amp=config["training"].get("amp", True),
+    )
+    metrics["ovmi"] = fixed_vocabulary_ovmi_metrics(
+        encoded["predictions"],
+        encoded["targets"],
+        encoded["words"],
+        vocabulary,
+        config.get("evaluation", {}).get("ovmi", {}),
+        base_dir=PROJECT_ROOT,
     )
     summary = {
         "status": "smoke_evaluation_completed" if smoke else "evaluation_completed",

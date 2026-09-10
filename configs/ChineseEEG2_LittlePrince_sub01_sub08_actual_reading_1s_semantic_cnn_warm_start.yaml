@@ -1,0 +1,19 @@
+extends: ChineseEEG2_LittlePrince_sub01_sub08_actual_reading_1s_cnn_warm_start.yaml
+
+dataset:
+  context_grouping: bounded_semantic_v1
+  semantic_context:
+    actual_reading_line_sheet_name: 逐行对照
+    preferred_words: 16
+    maximum_words: 32
+    maximum_seconds: 15.0
+
+cache:
+  event_table: tasks/word_decoding/ChineseEEG2_LittlePrince/cache/ChineseEEG2_LittlePrince_sub01_sub08_actual_reading_1s_semantic_v1.csv
+
+training:
+  output_dir: outputs/ChineseEEG2_LittlePrince/sub-01_to_sub-08/actual_reading_1s/semantic_context_cnn_warm_start
+
+provenance:
+  context_condition: bounded_semantic_v1
+  comparison: eight_subject_row_context_vs_bounded_semantic_context

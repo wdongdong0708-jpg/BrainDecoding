@@ -145,6 +145,12 @@ def 确保事件表(config):
     grouping = pd.read_csv(path, usecols=["context_grouping"])["context_grouping"]
     if not grouping.eq(config["dataset"]["context_grouping"]).all():
         raise ValueError("事件缓存的语境分组方式与配置不一致。")
+    semantic_context = config["dataset"].get("semantic_context")
+    if semantic_context is not None:
+        audit_path = path.with_suffix(".audit.json")
+        audit = json.loads(audit_path.read_text(encoding="utf-8"))
+        if audit.get("semantic_context") != semantic_context:
+            raise ValueError("事件缓存的语义片段参数与配置不一致。")
     return path
 
 
@@ -429,9 +435,14 @@ def 检查点内容(
         "subject_ids": list(dataset.subject_ids),
         "dataset_contract": {
             "context_grouping": config["dataset"]["context_grouping"],
+            "semantic_context": config["dataset"].get("semantic_context"),
             "root": config["dataset"]["root"],
             "alignment_path": config["dataset"]["alignment_path"],
+            "actual_reading_sources": config["dataset"].get(
+                "actual_reading_sources"
+            ),
             "subjects": config["dataset"]["subjects"],
+            "excluded_chapters": config["dataset"].get("excluded_chapters", []),
             "split": config["dataset"]["split"],
             "window_start_offset_seconds": config["dataset"].get(
                 "window_start_offset_seconds", 0.0
