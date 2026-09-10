@@ -18,7 +18,7 @@ from datasets.SMN4Lang import (
     split_for_run,
     training_event_mask,
 )
-from tasks.word_decoding.LibriBrain100.train import SentenceBatchSampler
+from braindecoding.training.word import SentenceBatchSampler
 from tasks.word_decoding.SMN4Lang.evaluate import evaluate_checkpoint
 from tasks.word_decoding.SMN4Lang.train import load_config, run_training
 from models import build_brain_embedding_model

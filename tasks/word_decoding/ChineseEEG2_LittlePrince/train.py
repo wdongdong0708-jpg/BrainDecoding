@@ -25,21 +25,21 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from datasets import ChineseEEG2 as dataset_module
-from losses import build_siglip_loss
-from metrics import fixed_vocabulary_retrieval_metrics
-from models import build_brain_embedding_model
-from optimizers import build_adamw_for_modules, build_cosine_annealing_scheduler
-from tasks.word_decoding.LibriBrain100.train import (
+from braindecoding.training.runtime import (
     choose_device,
     cpu_state_dict,
     limit_rows,
     load_checkpoint,
-    make_loader,
     parameter_count,
     save_checkpoint,
     save_json,
     set_seed,
 )
+from braindecoding.training.word import make_loader
+from losses import build_siglip_loss
+from metrics import fixed_vocabulary_retrieval_metrics
+from models import build_brain_embedding_model
+from optimizers import build_adamw_for_modules, build_cosine_annealing_scheduler
 
 
 def 项目路径(value):
