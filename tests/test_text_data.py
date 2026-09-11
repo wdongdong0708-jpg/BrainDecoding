@@ -193,21 +193,21 @@ def test_word_datasets_use_the_public_text_implementation():
     assert SMN4Lang.load_text_embedding_cache is text.load_text_embedding_cache
 
 
-def test_other_word_datasets_do_not_import_text_tools_from_libribrain():
+def test_dataset_production_modules_do_not_import_each_other():
     project_root = Path(__file__).resolve().parents[1]
-    forbidden_names = {
-        "_embedding_signature",
-        "text_embedding_signature",
-        "ensure_text_embedding_cache",
-        "load_text_embedding_cache",
-        "normalize_word",
-    }
-    for relative_path in ("datasets/ChineseEEG2.py", "datasets/SMN4Lang.py"):
-        tree = ast.parse((project_root / relative_path).read_text(encoding="utf-8"))
+    dataset_paths = tuple((project_root / "datasets").glob("*.py"))
+    dataset_modules = {path.stem for path in dataset_paths}
+    for path in dataset_paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
-            if not isinstance(node, ast.ImportFrom):
-                continue
-            if node.module not in {"datasets.LibriBrain", "LibriBrain"}:
-                continue
-            imported_names = {alias.name for alias in node.names}
-            assert imported_names.isdisjoint(forbidden_names)
+            if isinstance(node, ast.ImportFrom) and node.module:
+                imported_module = node.module.split(".")[-1]
+                is_dataset_import = node.module.startswith("datasets.") or (
+                    node.level > 0 and imported_module in dataset_modules
+                )
+                assert not is_dataset_import, f"{path.name}: {node.module}"
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    assert not alias.name.startswith("datasets."), (
+                        f"{path.name}: {alias.name}"
+                    )

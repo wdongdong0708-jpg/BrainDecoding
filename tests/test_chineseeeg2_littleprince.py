@@ -340,6 +340,9 @@ def test_记录缓存按合同降采样且不重复滤波(tmp_path):
 
 def test_actual_reading配置保持单一数据合同(monkeypatch):
     monkeypatch.setenv("BRAINDATA_ROOT", "D:/dataset")
+    monkeypatch.setenv(
+        "BRAINDECODING_MODEL_ROOT", "D:/code/dascoli-word-decoding/models"
+    )
     project_root = Path(__file__).resolve().parents[1]
     scopes = (
         (

@@ -1,5 +1,6 @@
 """跨数据集复用的数据工具。"""
 
+from .sensors import vectorview_channel_positions
 from .text import (
     ensure_text_embedding_cache,
     load_text_embedding_cache,
@@ -12,4 +13,5 @@ __all__ = (
     "load_text_embedding_cache",
     "normalize_word",
     "text_embedding_signature",
+    "vectorview_channel_positions",
 )

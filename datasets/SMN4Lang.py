@@ -23,13 +23,13 @@ import torch
 from scipy.io import loadmat
 from torch.utils.data import Dataset
 
+from braindecoding.data.sensors import vectorview_channel_positions
 from braindecoding.data.text import (
     ensure_text_embedding_cache,
     load_text_embedding_cache,
     text_embedding_signature,
 )
 from braindecoding.events import add_core_event_columns
-from .LibriBrain import vectorview_channel_positions
 
 
 FMRI_ALIGNMENT_OFFSET_SECONDS = 10.65

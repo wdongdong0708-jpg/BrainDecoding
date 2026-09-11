@@ -7,7 +7,10 @@ import pytest
 import torch
 from scipy.io import savemat
 
+from braindecoding.data import sensors
+from braindecoding.data.sensors import vectorview_channel_positions
 from braindecoding.data.text import text_embedding_signature
+from datasets import LibriBrain as libribrain_module
 from datasets import SMN4Lang as dataset_module
 from datasets.SMN4Lang import (
     ensure_repository_gpt2_word_prototypes,
@@ -36,6 +39,59 @@ CHANNEL_NAMES = [
     "MEG0122",
     "MEG0123",
 ]
+
+
+def test_vectorview_positions_keep_order_values_shape_and_compatibility(tmp_path):
+    layout_path = tmp_path / "Vectorview-all.lout"
+    layout_path.write_text(
+        "header\n"
+        "1 -10 0 0 0 MEG 0111\n"
+        "2 0 10 0 0 MEG 0112\n"
+        "3 10 5 0 0 MEG 0113\n",
+        encoding="utf-8",
+    )
+    channel_names = ["MEG 0113", "MEG0111", "MEG0112"]
+
+    current = vectorview_channel_positions(channel_names, layout_path)
+    legacy = libribrain_module.vectorview_channel_positions(
+        channel_names, layout_path
+    )
+
+    assert libribrain_module.vectorview_channel_positions is (
+        sensors.vectorview_channel_positions
+    )
+    assert dataset_module.vectorview_channel_positions is (
+        sensors.vectorview_channel_positions
+    )
+    assert current.shape == (3, 2)
+    assert current.dtype == np.float32
+    np.testing.assert_array_equal(current, legacy)
+    np.testing.assert_array_equal(
+        current,
+        np.asarray([[1.0, 0.5], [0.0, 0.0], [0.5, 1.0]], dtype=np.float32),
+    )
+
+
+def test_vectorview_positions_keep_missing_layout_and_channel_errors(tmp_path):
+    missing_path = tmp_path / "missing.lout"
+    with pytest.raises(FileNotFoundError, match="找不到 Vectorview layout"):
+        vectorview_channel_positions(["MEG0111"], missing_path)
+
+    layout_path = tmp_path / "Vectorview-all.lout"
+    layout_path.write_text(
+        "header\n1 0 0 0 0 MEG 0111\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(KeyError, match="Vectorview layout 缺少通道 MEG0112"):
+        vectorview_channel_positions(["MEG0112"], layout_path)
+
+
+def test_vectorview_positions_require_mne_when_layout_is_not_configured(
+    monkeypatch,
+):
+    monkeypatch.setattr(sensors.importlib.util, "find_spec", lambda name: None)
+    with pytest.raises(ImportError, match="需要安装 mne"):
+        vectorview_channel_positions(["MEG0111"])
 
 
 def _make_recording_files(root):
@@ -105,6 +161,9 @@ def test_training_uses_all_complete_words_not_only_top50():
 
 def test_conv_only_config_changes_only_transformer_switch_and_output_dir(monkeypatch):
     monkeypatch.setenv("BRAINDATA_ROOT", "D:/dataset")
+    monkeypatch.setenv(
+        "BRAINDECODING_MODEL_ROOT", "D:/code/dascoli-word-decoding/models"
+    )
     project_root = Path(__file__).resolve().parents[1]
     transformer_config = load_config(project_root / "configs" / "SMN4Lang.yaml")
     conv_only_config = load_config(
@@ -137,6 +196,9 @@ def test_one_second_cnn_warm_start_changes_only_training_stages_and_output(
     monkeypatch,
 ):
     monkeypatch.setenv("BRAINDATA_ROOT", "D:/dataset")
+    monkeypatch.setenv(
+        "BRAINDECODING_MODEL_ROOT", "D:/code/dascoli-word-decoding/models"
+    )
     project_root = Path(__file__).resolve().parents[1]
     baseline = load_config(project_root / "configs" / "SMN4Lang_1s.yaml")
     staged = load_config(

@@ -52,6 +52,18 @@ DATASET_ROOT_CONFIGS = (
         "D:/dataset/ds004078",
     ),
 )
+MODEL_ROOT_CONFIGS = (
+    (
+        "configs/ChineseEEG2_LittlePrince.yaml",
+        "${BRAINDECODING_MODEL_ROOT}/mengzi-t5-base",
+        "D:/code/dascoli-word-decoding/models/mengzi-t5-base",
+    ),
+    (
+        "configs/SMN4Lang.yaml",
+        "${BRAINDECODING_MODEL_ROOT}/mengzi-t5-base",
+        "D:/code/dascoli-word-decoding/models/mengzi-t5-base",
+    ),
+)
 
 
 def _legacy_project_path(value):
@@ -242,14 +254,61 @@ def test_tracked_dataset_root_resolves_to_legacy_path(
     """作者环境设置数据根目录后，最终数据位置保持不变。"""
     del configured_root
     monkeypatch.setenv("BRAINDATA_ROOT", "D:/dataset")
+    monkeypatch.setenv(
+        "BRAINDECODING_MODEL_ROOT", "D:/code/dascoli-word-decoding/models"
+    )
     config = load_yaml_with_extends(PROJECT_ROOT / relative_path)
     assert Path(config["dataset"]["root"]) == Path(legacy_root)
 
 
 def test_real_dataset_config_requires_braindata_root(monkeypatch):
+    monkeypatch.setenv(
+        "BRAINDECODING_MODEL_ROOT", "D:/code/dascoli-word-decoding/models"
+    )
     monkeypatch.delenv("BRAINDATA_ROOT", raising=False)
     with pytest.raises(ValueError, match="未设置的环境变量：BRAINDATA_ROOT"):
         load_yaml_with_extends(PROJECT_ROOT / "configs/LibriBrain100.yaml")
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "configured_model", "legacy_model"), MODEL_ROOT_CONFIGS
+)
+def test_tracked_text_model_uses_environment_variable(
+    relative_path, configured_model, legacy_model
+):
+    """公共配置不再写死作者机器的文本模型目录。"""
+    del legacy_model
+    with (PROJECT_ROOT / relative_path).open("r", encoding="utf-8") as stream:
+        config = yaml.safe_load(stream)
+    assert config["text_embedding"]["model_name"] == configured_model
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "configured_model", "legacy_model"), MODEL_ROOT_CONFIGS
+)
+def test_text_model_root_resolves_to_legacy_path(
+    relative_path, configured_model, legacy_model, monkeypatch
+):
+    """设置作者旧模型根目录后，最终模型位置保持不变。"""
+    del configured_model
+    monkeypatch.setenv("BRAINDATA_ROOT", "D:/dataset")
+    monkeypatch.setenv(
+        "BRAINDECODING_MODEL_ROOT", "D:/code/dascoli-word-decoding/models"
+    )
+    config = load_yaml_with_extends(PROJECT_ROOT / relative_path)
+    assert Path(config["text_embedding"]["model_name"]) == Path(legacy_model)
+
+
+def test_real_text_model_config_requires_model_root(monkeypatch):
+    monkeypatch.setenv("BRAINDATA_ROOT", "D:/dataset")
+    monkeypatch.delenv("BRAINDECODING_MODEL_ROOT", raising=False)
+    with pytest.raises(
+        ValueError,
+        match="未设置的环境变量：BRAINDECODING_MODEL_ROOT",
+    ):
+        load_yaml_with_extends(
+            PROJECT_ROOT / "configs/ChineseEEG2_LittlePrince.yaml"
+        )
 
 
 def test_chineseeeg_sr_entry_resolves_legacy_dataset_path(monkeypatch):
@@ -328,10 +387,18 @@ def test_real_config_matches_legacy_expansion(
 ):
     """三类真实配置的完整展开对象必须与迁移前逐项相同。"""
     monkeypatch.setenv("BRAINDATA_ROOT", "D:/dataset")
+    monkeypatch.setenv(
+        "BRAINDECODING_MODEL_ROOT", "D:/code/dascoli-word-decoding/models"
+    )
     expected = _legacy_load_config(
         relative_path, cache_path_keys, resolve_layout=resolve_layout
     )
     expected["dataset"]["root"] = legacy_dataset_root
+    configured_model = expected.get("text_embedding", {}).get("model_name")
+    if configured_model == "${BRAINDECODING_MODEL_ROOT}/mengzi-t5-base":
+        expected["text_embedding"]["model_name"] = (
+            "D:/code/dascoli-word-decoding/models/mengzi-t5-base"
+        )
     actual = loader(relative_path)
     assert Path(actual["dataset"]["root"]) == Path(legacy_dataset_root)
     assert actual == expected

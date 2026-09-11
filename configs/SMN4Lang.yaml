@@ -48,7 +48,7 @@ cache:
   text_embeddings: tasks/word_decoding/SMN4Lang/cache/mengzi_t5_layer_0_5_all_words.npz
 
 text_embedding:
-  model_name: D:/code/dascoli-word-decoding/models/mengzi-t5-base
+  model_name: ${BRAINDECODING_MODEL_ROOT}/mengzi-t5-base
   layer_fraction: 0.5
   token_aggregation: mean
   embedding_dimension: 768
