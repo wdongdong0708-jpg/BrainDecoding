@@ -1,7 +1,11 @@
 outputs/
+artifacts/*
+!artifacts/README.md
 *.npz
 *.csv
 *.json
+!experiments/legacy_results_manifest.json
+!experiments/manifests/artifacts.json
 
 __pycache__/
 *.py[cod]

@@ -67,25 +67,25 @@ MODEL_ROOT_CONFIGS = (
 ALIGNMENT_CONFIGS = (
     (
         "configs/ChineseEEG2_LittlePrince.yaml",
-        "outputs/女声一小王子时间戳/女声一_小王子_实际朗读时间戳.xlsx",
+        "artifacts/alignments/chineseeeg2_littleprince/f1/女声一_小王子_实际朗读时间戳.xlsx",
         (),
     ),
     (
         "configs/ChineseEEG2_LittlePrince_sub01_actual_reading_1s.yaml",
-        "outputs/女声一小王子时间戳/女声一_小王子_实际朗读时间戳.xlsx",
+        "artifacts/alignments/chineseeeg2_littleprince/f1/女声一_小王子_实际朗读时间戳.xlsx",
         (),
     ),
     (
         "configs/ChineseEEG2_LittlePrince_sub05_sub08_actual_reading_1s.yaml",
-        "outputs/男声一小王子时间戳/男声一_小王子_实际朗读时间戳.xlsx",
+        "artifacts/alignments/chineseeeg2_littleprince/m1/男声一_小王子_实际朗读时间戳.xlsx",
         (),
     ),
     (
         "configs/ChineseEEG2_LittlePrince_sub01_sub08_actual_reading_1s.yaml",
-        "outputs/女声一小王子时间戳/女声一_小王子_实际朗读时间戳.xlsx",
+        "artifacts/alignments/chineseeeg2_littleprince/f1/女声一_小王子_实际朗读时间戳.xlsx",
         (
-            "outputs/女声一小王子时间戳/女声一_小王子_实际朗读时间戳.xlsx",
-            "outputs/男声一小王子时间戳/男声一_小王子_实际朗读时间戳.xlsx",
+            "artifacts/alignments/chineseeeg2_littleprince/f1/女声一_小王子_实际朗读时间戳.xlsx",
+            "artifacts/alignments/chineseeeg2_littleprince/m1/男声一_小王子_实际朗读时间戳.xlsx",
         ),
     ),
 )

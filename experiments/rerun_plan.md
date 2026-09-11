@@ -103,9 +103,10 @@ canonical 别名。
 
 ## 7. 不属于 canonical 训练 run 的本地输出
 
-- `outputs/女声一小王子时间戳/` 与 `outputs/男声一小王子时间戳/` 是带人工/工具链
-  处理痕迹的对齐输入资产，不是可任意删除的模型输出。后续应迁到
-  `artifacts/chineseeeg2_littleprince/alignment/{f1,m1}/`，本轮不移动。
+- `outputs/女声一小王子时间戳/` 与 `outputs/男声一小王子时间戳/` 中的正式上游
+  对齐资产已经按字节原样迁入
+  `artifacts/alignments/chineseeeg2_littleprince/{f1,m1}/`。旧目录仅保留中间缓存、
+  工具依赖、日志和待进一步判定的生成脚本；它们不再是生产配置的正式输入位置。
 - `outputs/audits/`、各历史 run 下的 `audit_*` 与词表曲线目录是已有派生审计结果，
   后续归入对应 canonical run 的 `audits/validation/` 或明确的历史归档，本轮不移动。
 - `outputs/pytest_*`、`outputs/01a08422-c069-7810-977a-92b259884b04/` 是本地测试/

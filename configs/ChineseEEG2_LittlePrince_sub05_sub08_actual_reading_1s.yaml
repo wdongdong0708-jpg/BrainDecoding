@@ -1,7 +1,7 @@
 extends: ChineseEEG2_LittlePrince.yaml
 
 dataset:
-  alignment_path: outputs/男声一小王子时间戳/男声一_小王子_实际朗读时间戳.xlsx
+  alignment_path: artifacts/alignments/chineseeeg2_littleprince/m1/男声一_小王子_实际朗读时间戳.xlsx
   event_source_type: actual_reading_workbook
   actual_reading_sheet_name: 词级时间戳
   expected_source_event_count: 14017

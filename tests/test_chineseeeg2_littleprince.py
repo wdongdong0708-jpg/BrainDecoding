@@ -280,6 +280,42 @@ def test_两种声音事件源合并后统一冻结候选词(tmp_path, monkeypat
     assert set(table.loc[table["vocabulary_rank"].gt(0), "normalized_word"]) == {"甲", "乙"}
 
 
+def test_对齐文件只迁移目录不改变事件科学内容(tmp_path, monkeypatch):
+    """同一工作簿位于 outputs 或 artifacts 时，事件表必须逐值相同。"""
+    config = 创建合成任务(tmp_path)
+    old_path = tmp_path / "outputs" / "女声一小王子时间戳" / "actual.xlsx"
+    new_path = tmp_path / "artifacts" / "alignments" / "f1" / "actual.xlsx"
+    old_path.parent.mkdir(parents=True)
+    new_path.parent.mkdir(parents=True)
+    old_path.write_bytes(b"same-workbook")
+    new_path.write_bytes(old_path.read_bytes())
+    source = pd.DataFrame([
+        {"音频编号": chapter, "音频文件": f"audio_{chapter}.wav", "原表行号": 10 + chapter,
+         "词": word, "文本起始位置": index, "文本结束位置": index,
+         "开始时间（秒）": 1.0 + index, "结束时间（秒）": 1.25 + index,
+         "质检提示": np.nan, "时间戳来源": "首字开始至末字结束"}
+        for chapter, words in ((1, ("甲", "乙")), (2, ("甲", "乙")), (3, ("甲", "乙")))
+        for index, word in enumerate(words)
+    ])
+    monkeypatch.setattr(
+        dataset_module.pd,
+        "read_excel",
+        lambda *args, **kwargs: source.copy(),
+    )
+
+    old_config = dict(config, alignment_path=str(old_path))
+    new_config = dict(config, alignment_path=str(new_path))
+    old_table = dataset_module.构建实际朗读事件表(old_config)
+    new_table = dataset_module.构建实际朗读事件表(new_config)
+
+    pd.testing.assert_frame_equal(
+        old_table,
+        new_table,
+        check_dtype=True,
+        check_exact=True,
+    )
+
+
 def test_长度受控语义片段跨行合并并在自然边界切分():
     """短行应跨行合并，达到优先长度后才在分句边界切分。"""
     frame = pd.DataFrame(
