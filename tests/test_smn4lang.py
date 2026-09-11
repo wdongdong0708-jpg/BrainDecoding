@@ -11,8 +11,8 @@ from braindecoding.data import sensors
 from braindecoding.data.sensors import vectorview_channel_positions
 from braindecoding.data.text import text_embedding_signature
 from datasets import LibriBrain as libribrain_module
-from datasets import SMN4Lang as dataset_module
-from datasets.SMN4Lang import (
+from braindecoding.data import smn4lang as dataset_module
+from braindecoding.data.smn4lang import (
     ensure_repository_gpt2_word_prototypes,
     meg_word_times,
     processed_recording_path,

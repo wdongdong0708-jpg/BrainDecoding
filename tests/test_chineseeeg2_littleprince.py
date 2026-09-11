@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from datasets import ChineseEEG2 as dataset_module
+from braindecoding.data import chineseeeg2 as dataset_module
 from models import build_brain_embedding_model
 from tasks.word_decoding.ChineseEEG2_LittlePrince.train import (
     设置脑编码器可训练,

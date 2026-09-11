@@ -17,9 +17,9 @@ try:
 except ImportError:  # 通过脚本或 run.py 直接加载时没有父包。
     import train as training
 
-from datasets import LibriBrain as dataset_module
+from braindecoding.data import libribrain as dataset_module
 from models import build_brain_embedding_model
-from ovmi_metrics import fixed_vocabulary_ovmi_metrics
+from braindecoding.evaluation.ovmi import fixed_vocabulary_ovmi_metrics
 
 
 def evaluate_checkpoint(

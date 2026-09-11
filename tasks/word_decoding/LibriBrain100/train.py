@@ -37,7 +37,7 @@ from braindecoding.training.word import (
     move_batch,
     train_one_epoch,
 )
-from datasets import LibriBrain as dataset_module
+from braindecoding.data import libribrain as dataset_module
 from losses import build_siglip_loss
 from metrics import fixed_vocabulary_retrieval_metrics
 from models import build_brain_embedding_model

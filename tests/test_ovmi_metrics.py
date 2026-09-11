@@ -4,11 +4,11 @@ import json
 
 import numpy as np
 
-from metrics import (
+from braindecoding.evaluation.retrieval import (
     fixed_vocabulary_retrieval,
     fixed_vocabulary_top1_predictions,
 )
-from ovmi_metrics import (
+from braindecoding.evaluation.ovmi import (
     build_confusion_matrix,
     full_ovmi_metrics,
     load_reference_distribution,

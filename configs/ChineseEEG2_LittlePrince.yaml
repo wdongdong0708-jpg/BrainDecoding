@@ -1,7 +1,7 @@
 dataset:
   name: ChineseEEG2_LittlePrince
   root: ${BRAINDATA_ROOT}/ChineseEEG-2/PassiveListening
-  alignment_path: D:/code/BrainDecoding/outputs/女声一小王子时间戳/女声一_小王子_实际朗读时间戳.xlsx
+  alignment_path: outputs/女声一小王子时间戳/女声一_小王子_实际朗读时间戳.xlsx
   event_source_type: actual_reading_workbook
   actual_reading_sheet_name: 词级时间戳
   expected_source_event_count: 14106

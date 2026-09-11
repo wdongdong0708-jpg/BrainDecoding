@@ -19,9 +19,9 @@ try:
 except ImportError:
     import train as training
 
-from datasets import ChineseEEG2 as dataset_module
+from braindecoding.data import chineseeeg2 as dataset_module
 from models import build_brain_embedding_model
-from ovmi_metrics import fixed_vocabulary_ovmi_metrics
+from braindecoding.evaluation.ovmi import fixed_vocabulary_ovmi_metrics
 
 
 def 验证检查点合同(checkpoint, config, dataset, vocabulary):

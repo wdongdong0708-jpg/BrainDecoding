@@ -1,11 +1,13 @@
-"""旧检索指标导入路径的兼容入口。
+"""词级任务共享的评价函数。"""
 
-真实实现位于 :mod:`braindecoding.evaluation.retrieval`。
-"""
-
-from braindecoding.evaluation.retrieval import (
-    _as_numpy,
-    _fixed_vocabulary_inputs,
+from .ovmi import (
+    build_confusion_matrix,
+    build_reference_distribution,
+    fixed_vocabulary_ovmi_metrics,
+    full_ovmi_metrics,
+    load_reference_distribution,
+)
+from .retrieval import (
     fixed_vocabulary_retrieval,
     fixed_vocabulary_retrieval_metrics,
     fixed_vocabulary_top1_predictions,
@@ -18,11 +20,23 @@ from braindecoding.evaluation.retrieval import (
     summarize_retrieval,
     unique_candidates,
 )
+from .vocabulary import (
+    build_frequency_vocabulary,
+    build_vocabulary_metadata,
+    validate_frozen_vocabulary,
+)
 
 __all__ = [
+    "build_confusion_matrix",
+    "build_frequency_vocabulary",
+    "build_reference_distribution",
+    "build_vocabulary_metadata",
+    "fixed_vocabulary_ovmi_metrics",
     "fixed_vocabulary_retrieval",
     "fixed_vocabulary_retrieval_metrics",
     "fixed_vocabulary_top1_predictions",
+    "full_ovmi_metrics",
+    "load_reference_distribution",
     "mean_by_target",
     "normalize_rows",
     "paired_cluster_bootstrap",
@@ -31,4 +45,5 @@ __all__ = [
     "retrieval_ranks",
     "summarize_retrieval",
     "unique_candidates",
+    "validate_frozen_vocabulary",
 ]

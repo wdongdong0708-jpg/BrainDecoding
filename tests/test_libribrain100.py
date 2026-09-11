@@ -6,12 +6,12 @@ import pandas as pd
 import torch
 
 from braindecoding.data.text import normalize_word, text_embedding_signature
-from datasets.LibriBrain import (
+from braindecoding.data.libribrain import (
     materialize_recording_cache,
     processed_recording_path,
 )
 from losses import build_siglip_loss
-from metrics import fixed_vocabulary_retrieval_metrics
+from braindecoding.evaluation.retrieval import fixed_vocabulary_retrieval_metrics
 from models import build_brain_embedding_model
 from tasks.word_decoding.LibriBrain100.evaluate import evaluate_checkpoint
 from tasks.word_decoding.LibriBrain100.train import load_config, run_training

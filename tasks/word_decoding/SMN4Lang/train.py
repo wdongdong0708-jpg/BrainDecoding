@@ -36,7 +36,7 @@ from braindecoding.training.word import (
     move_batch,
     train_one_epoch,
 )
-from datasets import SMN4Lang as dataset_module
+from braindecoding.data import smn4lang as dataset_module
 from losses import build_siglip_loss
 from metrics import fixed_vocabulary_retrieval_metrics
 from models import build_brain_embedding_model

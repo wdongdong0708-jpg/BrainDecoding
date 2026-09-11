@@ -12,7 +12,9 @@ from braindecoding.events import (
     validate_event_table,
 )
 from braindecoding.training.word import make_loader
-from datasets import ChineseEEG2, LibriBrain, SMN4Lang
+from braindecoding.data import chineseeeg2 as ChineseEEG2
+from braindecoding.data import libribrain as LibriBrain
+from braindecoding.data import smn4lang as SMN4Lang
 
 
 EXPECTED_CORE_COLUMNS = (

@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 from tasks.word_decoding.ChineseEEG2_LittlePrince import train as training
 from tasks.word_decoding.ChineseEEG2_LittlePrince.evaluate import 验证检查点合同
-from datasets import ChineseEEG2 as data
+from braindecoding.data import chineseeeg2 as data
 from metrics import retrieval_ranks, summarize_retrieval, normalize_rows
 from models import build_brain_embedding_model
 
@@ -164,7 +164,7 @@ def main(dataset_name="ChineseEEG2", record_audit=False):
     else:
         if dataset_name in ("LibriBrain100", "LibriBrain100WarmStart"):
             from tasks.word_decoding.LibriBrain100 import train as task_training
-            from datasets import LibriBrain as module
+            from braindecoding.data import libribrain as module
             config_path = (
                 "configs/LibriBrain100_1s_cnn_warm_start.yaml"
                 if dataset_name == "LibriBrain100WarmStart"
@@ -173,7 +173,7 @@ def main(dataset_name="ChineseEEG2", record_audit=False):
             vocabulary = module.LIBRIBRAIN100_50_WORD_VOCABULARY
         elif dataset_name == "SMN4Lang":
             from tasks.word_decoding.SMN4Lang import train as task_training
-            from datasets import SMN4Lang as module
+            from braindecoding.data import smn4lang as module
             config_path = "configs/SMN4Lang_1s_cnn_warm_start.yaml"
             vocabulary = module.SMN4LANG50_VOCABULARY
         else:
@@ -373,7 +373,7 @@ def 错词分析(dataset_name="ChineseEEG2"):
         load_table = data.载入事件表
     elif dataset_name in ("LibriBrain100", "LibriBrain100WarmStart"):
         from tasks.word_decoding.LibriBrain100 import train as task_training
-        from datasets import LibriBrain as module
+        from braindecoding.data import libribrain as module
         config = task_training.load_config(
             "configs/LibriBrain100_1s_cnn_warm_start.yaml"
             if dataset_name == "LibriBrain100WarmStart"
@@ -383,7 +383,7 @@ def 错词分析(dataset_name="ChineseEEG2"):
         vocabulary = module.LIBRIBRAIN100_50_WORD_VOCABULARY
     elif dataset_name == "SMN4Lang":
         from tasks.word_decoding.SMN4Lang import train as task_training
-        from datasets import SMN4Lang as module
+        from braindecoding.data import smn4lang as module
         config = task_training.load_config("configs/SMN4Lang_1s_cnn_warm_start.yaml")
         load_table = module.load_event_table
         vocabulary = module.SMN4LANG50_VOCABULARY

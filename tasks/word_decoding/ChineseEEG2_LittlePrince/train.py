@@ -36,7 +36,7 @@ from braindecoding.training.runtime import (
     set_seed,
 )
 from braindecoding.training.word import make_loader
-from datasets import ChineseEEG2 as dataset_module
+from braindecoding.data import chineseeeg2 as dataset_module
 from losses import build_siglip_loss
 from metrics import fixed_vocabulary_retrieval_metrics
 from models import build_brain_embedding_model
@@ -57,6 +57,13 @@ def 载入配置(path=None):
         config["training"]["pretrained_brain_encoder_checkpoint"] = str(
             project_path(checkpoint)
         )
+    alignment_path = config["dataset"].get("alignment_path")
+    if alignment_path:
+        config["dataset"]["alignment_path"] = str(project_path(alignment_path))
+    for source in config["dataset"].get("actual_reading_sources", ()):
+        source_alignment_path = source.get("alignment_path")
+        if source_alignment_path:
+            source["alignment_path"] = str(project_path(source_alignment_path))
     return config
 
 

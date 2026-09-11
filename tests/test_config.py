@@ -64,6 +64,31 @@ MODEL_ROOT_CONFIGS = (
         "D:/code/dascoli-word-decoding/models/mengzi-t5-base",
     ),
 )
+ALIGNMENT_CONFIGS = (
+    (
+        "configs/ChineseEEG2_LittlePrince.yaml",
+        "outputs/女声一小王子时间戳/女声一_小王子_实际朗读时间戳.xlsx",
+        (),
+    ),
+    (
+        "configs/ChineseEEG2_LittlePrince_sub01_actual_reading_1s.yaml",
+        "outputs/女声一小王子时间戳/女声一_小王子_实际朗读时间戳.xlsx",
+        (),
+    ),
+    (
+        "configs/ChineseEEG2_LittlePrince_sub05_sub08_actual_reading_1s.yaml",
+        "outputs/男声一小王子时间戳/男声一_小王子_实际朗读时间戳.xlsx",
+        (),
+    ),
+    (
+        "configs/ChineseEEG2_LittlePrince_sub01_sub08_actual_reading_1s.yaml",
+        "outputs/女声一小王子时间戳/女声一_小王子_实际朗读时间戳.xlsx",
+        (
+            "outputs/女声一小王子时间戳/女声一_小王子_实际朗读时间戳.xlsx",
+            "outputs/男声一小王子时间戳/男声一_小王子_实际朗读时间戳.xlsx",
+        ),
+    ),
+)
 
 
 def _legacy_project_path(value):
@@ -311,6 +336,37 @@ def test_real_text_model_config_requires_model_root(monkeypatch):
         )
 
 
+@pytest.mark.parametrize(
+    ("relative_path", "alignment_path", "source_paths"), ALIGNMENT_CONFIGS
+)
+def test_alignment_paths_are_project_relative_and_resolve_from_any_cwd(
+    relative_path,
+    alignment_path,
+    source_paths,
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("BRAINDATA_ROOT", "D:/dataset")
+    monkeypatch.setenv(
+        "BRAINDECODING_MODEL_ROOT", "D:/code/dascoli-word-decoding/models"
+    )
+    monkeypatch.chdir(tmp_path)
+    config = 载入配置(PROJECT_ROOT / relative_path)
+
+    assert Path(config["dataset"]["alignment_path"]) == (
+        PROJECT_ROOT / alignment_path
+    )
+    assert tuple(
+        Path(source["alignment_path"])
+        for source in config["dataset"].get("actual_reading_sources", ())
+    ) == tuple(PROJECT_ROOT / path for path in source_paths)
+
+
+def test_tracked_configs_do_not_contain_author_machine_drive_paths():
+    for path in (PROJECT_ROOT / "configs").glob("*.yaml"):
+        assert "D:/" not in path.read_text(encoding="utf-8"), path
+
+
 def test_chineseeeg_sr_entry_resolves_legacy_dataset_path(monkeypatch):
     """序列任务入口也必须通过公共加载器展开数据根目录。"""
     monkeypatch.setenv("BRAINDATA_ROOT", "D:/dataset")
@@ -398,6 +454,15 @@ def test_real_config_matches_legacy_expansion(
     if configured_model == "${BRAINDECODING_MODEL_ROOT}/mengzi-t5-base":
         expected["text_embedding"]["model_name"] = (
             "D:/code/dascoli-word-decoding/models/mengzi-t5-base"
+        )
+    alignment_path = expected["dataset"].get("alignment_path")
+    if alignment_path:
+        expected["dataset"]["alignment_path"] = str(
+            _legacy_project_path(alignment_path)
+        )
+    for source in expected["dataset"].get("actual_reading_sources", ()):
+        source["alignment_path"] = str(
+            _legacy_project_path(source["alignment_path"])
         )
     actual = loader(relative_path)
     assert Path(actual["dataset"]["root"]) == Path(legacy_dataset_root)

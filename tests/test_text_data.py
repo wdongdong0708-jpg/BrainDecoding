@@ -8,7 +8,10 @@ import numpy as np
 import torch
 
 from braindecoding.data import text
-from datasets import ChineseEEG2, LibriBrain, SMN4Lang
+from braindecoding.data import chineseeeg2 as ChineseEEG2
+from braindecoding.data import libribrain as LibriBrain
+from braindecoding.data import smn4lang as SMN4Lang
+from datasets import LibriBrain as legacy_libribrain
 
 
 def _install_fake_transformers(monkeypatch, calls):
@@ -162,7 +165,7 @@ def test_cache_reading_and_libribrain_compatibility_export_are_equivalent(
     )
 
     current = text.load_text_embedding_cache(path, expected_signature=signature)
-    legacy = LibriBrain.load_text_embedding_cache(
+    legacy = legacy_libribrain.load_text_embedding_cache(
         path, expected_signature=signature
     )
 
@@ -170,10 +173,16 @@ def test_cache_reading_and_libribrain_compatibility_export_are_equivalent(
     assert list(legacy) == list(current)
     for word in current:
         np.testing.assert_array_equal(legacy[word], current[word])
-    assert LibriBrain.normalize_word is text.normalize_word
-    assert LibriBrain._embedding_signature is text.text_embedding_signature
-    assert LibriBrain.load_text_embedding_cache is text.load_text_embedding_cache
-    assert LibriBrain.ensure_text_embedding_cache is text.ensure_text_embedding_cache
+    assert legacy_libribrain.normalize_word is text.normalize_word
+    assert legacy_libribrain._embedding_signature is text.text_embedding_signature
+    assert (
+        legacy_libribrain.load_text_embedding_cache
+        is text.load_text_embedding_cache
+    )
+    assert (
+        legacy_libribrain.ensure_text_embedding_cache
+        is text.ensure_text_embedding_cache
+    )
 
 
 def test_word_datasets_use_the_public_text_implementation():
