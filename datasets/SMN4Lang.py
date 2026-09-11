@@ -23,12 +23,13 @@ import torch
 from scipy.io import loadmat
 from torch.utils.data import Dataset
 
-from .LibriBrain import (
-    _embedding_signature,
+from braindecoding.data.text import (
     ensure_text_embedding_cache,
     load_text_embedding_cache,
-    vectorview_channel_positions,
+    text_embedding_signature,
 )
+from braindecoding.events import add_core_event_columns
+from .LibriBrain import vectorview_channel_positions
 
 
 FMRI_ALIGNMENT_OFFSET_SECONDS = 10.65
@@ -732,9 +733,25 @@ def build_event_table(config) -> pd.DataFrame:
         tables.append(frame)
 
     event_table = pd.concat(tables, ignore_index=True)
-    return event_table.sort_values(
+    event_table = event_table.sort_values(
         ["subject_id", "run", "onset_seconds", "word_index"]
     ).reset_index(drop=True)
+    return add_event_contract(event_table)
+
+
+def add_event_contract(event_table: pd.DataFrame) -> pd.DataFrame:
+    """保持现有稳定排序，追加 SMN4Lang 中文公共字段。"""
+    material_ids = event_table["run"].map(
+        lambda run: f"SMN4Lang|story-{int(run):02d}"
+    )
+    return add_core_event_columns(
+        event_table,
+        material_ids=material_ids,
+        split_units=material_ids,
+        start_times=event_table["onset_seconds"],
+        end_times=event_table["onset_seconds"]
+        + event_table["word_duration_seconds"],
+    )
 
 
 def _parse_bool(value) -> bool:
@@ -1132,7 +1149,7 @@ class SMN4LangWordDataset(Dataset):
                 self.dataset_config, text_embedding_config
             )
         else:
-            expected_signature = _embedding_signature(text_embedding_config)
+            expected_signature = text_embedding_signature(text_embedding_config)
         self.embedding_map = load_text_embedding_cache(
             embedding_cache_path,
             expected_signature=expected_signature,

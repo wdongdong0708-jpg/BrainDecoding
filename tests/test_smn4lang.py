@@ -7,9 +7,9 @@ import pytest
 import torch
 from scipy.io import savemat
 
+from braindecoding.data.text import text_embedding_signature
 from datasets import SMN4Lang as dataset_module
 from datasets.SMN4Lang import (
-    _embedding_signature,
     ensure_repository_gpt2_word_prototypes,
     meg_word_times,
     processed_recording_path,
@@ -103,7 +103,8 @@ def test_training_uses_all_complete_words_not_only_top50():
     assert training_event_mask(frame).tolist() == [True, True, False, False]
 
 
-def test_conv_only_config_changes_only_transformer_switch_and_output_dir():
+def test_conv_only_config_changes_only_transformer_switch_and_output_dir(monkeypatch):
+    monkeypatch.setenv("BRAINDATA_ROOT", "D:/dataset")
     project_root = Path(__file__).resolve().parents[1]
     transformer_config = load_config(project_root / "configs" / "SMN4Lang.yaml")
     conv_only_config = load_config(
@@ -132,7 +133,10 @@ def test_conv_only_config_changes_only_transformer_switch_and_output_dir():
         assert transformer_config[section] == conv_only_config[section]
 
 
-def test_one_second_cnn_warm_start_changes_only_training_stages_and_output():
+def test_one_second_cnn_warm_start_changes_only_training_stages_and_output(
+    monkeypatch,
+):
+    monkeypatch.setenv("BRAINDATA_ROOT", "D:/dataset")
     project_root = Path(__file__).resolve().parents[1]
     baseline = load_config(project_root / "configs" / "SMN4Lang_1s.yaml")
     staged = load_config(
@@ -296,7 +300,8 @@ def test_repository_gpt2_builds_train_only_word_prototypes(tmp_path):
     assert cache_path.read_bytes() == full_cache_bytes
 
 
-def test_gpt2_default_config_uses_1024_dimensions_and_compatible_heads():
+def test_gpt2_default_config_uses_1024_dimensions_and_compatible_heads(monkeypatch):
+    monkeypatch.setenv("BRAINDATA_ROOT", "D:/dataset")
     project_root = Path(__file__).resolve().parents[1]
     config = load_config(project_root / "configs" / "SMN4Lang_gpt2.yaml")
     assert config["text_embedding"]["source"] == "smn4lang_repository_gpt2"
@@ -431,7 +436,7 @@ def test_one_epoch_training_pipeline_on_synthetic_cache(tmp_path):
         json.dumps(
             {
                 "status": "materialized",
-                "signature": _embedding_signature(text_config),
+                "signature": text_embedding_signature(text_config),
                 "word_count": 2,
                 "embedding_dimension": 8,
             }

@@ -1,6 +1,6 @@
 dataset:
   name: LibriBrain100
-  root: D:/dataset/LibriBrain100
+  root: ${BRAINDATA_ROOT}/LibriBrain100
   task: Sherlock1
   events_dir: derivatives/events
   serialised_dir: derivatives/serialised

@@ -24,7 +24,7 @@ DEFAULT_CONFIG = (
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from datasets import ChineseEEG2 as dataset_module
+from braindecoding.config import load_yaml_with_extends, project_path
 from braindecoding.training.runtime import (
     choose_device,
     cpu_state_dict,
@@ -36,59 +36,26 @@ from braindecoding.training.runtime import (
     set_seed,
 )
 from braindecoding.training.word import make_loader
+from datasets import ChineseEEG2 as dataset_module
 from losses import build_siglip_loss
 from metrics import fixed_vocabulary_retrieval_metrics
 from models import build_brain_embedding_model
 from optimizers import build_adamw_for_modules, build_cosine_annealing_scheduler
 
 
-def 项目路径(value):
-    """以项目根目录为基准解析配置路径。"""
-    path = Path(value)
-    return path if path.is_absolute() else PROJECT_ROOT / path
-
-
-def _递归合并(base, override):
-    """递归合并父配置和当前阶段的局部覆盖。"""
-    merged = dict(base)
-    for key, value in override.items():
-        if isinstance(value, dict) and isinstance(merged.get(key), dict):
-            merged[key] = _递归合并(merged[key], value)
-        else:
-            merged[key] = value
-    return merged
-
-
-def _载入配置映射(config_path, ancestors=()):
-    """递归展开配置继承，并拒绝循环引用。"""
-    config_path = Path(config_path).resolve()
-    if config_path in ancestors:
-        raise ValueError(f"配置继承出现循环：{config_path}")
-    with config_path.open("r", encoding="utf-8") as stream:
-        config = yaml.safe_load(stream) or {}
-    parent = config.pop("extends", None)
-    if parent is None:
-        return config
-    parent_path = Path(parent)
-    if not parent_path.is_absolute():
-        parent_path = config_path.parent / parent_path
-    parent_config = _载入配置映射(parent_path, (*ancestors, config_path))
-    return _递归合并(parent_config, config)
-
-
 def 载入配置(path=None):
     """载入单一任务配置，并展开项目内的输出与缓存路径。"""
-    config_path = 项目路径(path or DEFAULT_CONFIG)
-    config = _载入配置映射(config_path)
+    config_path = project_path(path or DEFAULT_CONFIG)
+    config = load_yaml_with_extends(config_path)
     for key in ("event_table", "eeg_dir", "text_embeddings"):
-        config["cache"][key] = str(项目路径(config["cache"][key]))
+        config["cache"][key] = str(project_path(config["cache"][key]))
     config["training"]["output_dir"] = str(
-        项目路径(config["training"]["output_dir"])
+        project_path(config["training"]["output_dir"])
     )
     checkpoint = config["training"].get("pretrained_brain_encoder_checkpoint")
     if checkpoint:
         config["training"]["pretrained_brain_encoder_checkpoint"] = str(
-            项目路径(checkpoint)
+            project_path(checkpoint)
         )
     return config
 

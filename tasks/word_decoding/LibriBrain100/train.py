@@ -10,7 +10,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
-import yaml
 
 
 TASK_DIR = Path(__file__).resolve().parent
@@ -20,7 +19,7 @@ DEFAULT_CONFIG = PROJECT_ROOT / "configs" / "LibriBrain100.yaml"
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from datasets import LibriBrain as dataset_module
+from braindecoding.config import load_yaml_with_extends, project_path
 from braindecoding.training.runtime import (
     choose_device,
     cpu_state_dict,
@@ -38,6 +37,7 @@ from braindecoding.training.word import (
     move_batch,
     train_one_epoch,
 )
+from datasets import LibriBrain as dataset_module
 from losses import build_siglip_loss
 from metrics import fixed_vocabulary_retrieval_metrics
 from models import build_brain_embedding_model
@@ -47,41 +47,9 @@ from optimizers import (
 )
 
 
-def project_path(value):
-    """以项目根目录为基准解析相对配置路径。"""
-    path = Path(value)
-    return path if path.is_absolute() else PROJECT_ROOT / path
-
-
-def _deep_merge(base, override):
-    merged = dict(base)
-    for key, value in override.items():
-        if isinstance(value, dict) and isinstance(merged.get(key), dict):
-            merged[key] = _deep_merge(merged[key], value)
-        else:
-            merged[key] = value
-    return merged
-
-
-def _load_config_mapping(config_path, ancestors=()):
-    config_path = Path(config_path).resolve()
-    if config_path in ancestors:
-        raise ValueError(f"Cyclic config inheritance: {config_path}")
-    with config_path.open("r", encoding="utf-8") as file:
-        config = yaml.safe_load(file) or {}
-    parent = config.pop("extends", None)
-    if parent is None:
-        return config
-    parent_path = Path(parent)
-    if not parent_path.is_absolute():
-        parent_path = config_path.parent / parent_path
-    parent_config = _load_config_mapping(parent_path, (*ancestors, config_path))
-    return _deep_merge(parent_config, config)
-
-
 def load_config(path=None):
     config_path = project_path(path or DEFAULT_CONFIG)
-    config = _load_config_mapping(config_path)
+    config = load_yaml_with_extends(config_path)
     for key in ("event_table", "meg_dir", "text_embeddings"):
         config["cache"][key] = str(project_path(config["cache"][key]))
     config["training"]["output_dir"] = str(

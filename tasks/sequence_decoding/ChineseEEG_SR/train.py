@@ -8,7 +8,6 @@ from pathlib import Path
 
 import numpy as np
 import torch
-import yaml
 from torch.utils.data import DataLoader
 
 TASK_DIR = Path(__file__).resolve().parent
@@ -19,6 +18,7 @@ DEFAULT_CONFIG = PROJECT_ROOT / "configs" / "ChineseEEG_SR.yaml"
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from braindecoding.config import load_yaml_with_extends, project_path
 from datasets import ChineseEEG_SR as dataset_module
 from losses import multi_positive_contrastive_loss
 from metrics import (
@@ -31,17 +31,10 @@ from models import build_strided_conv_encoder
 from optimizers import build_optimizer, build_scheduler
 
 
-def project_path(value):
-    """把配置中的相对路径统一锚定到项目根目录。"""
-    path = Path(value)
-    return path if path.is_absolute() else PROJECT_ROOT / path
-
-
 def load_config(path=None):
     """读取任务配置并解析项目内路径。"""
     config_path = Path(path) if path else DEFAULT_CONFIG
-    with config_path.open("r", encoding="utf-8") as file:
-        config = yaml.safe_load(file)
+    config = load_yaml_with_extends(config_path)
     config["cache_dir"] = str(project_path(config.get("cache_dir", "cache")))
     for section, key in (
         ("training", "event_table"),

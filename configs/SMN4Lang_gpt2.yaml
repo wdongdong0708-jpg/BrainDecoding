@@ -1,6 +1,6 @@
 dataset:
   name: SMN4Lang
-  root: D:/dataset/ds004078
+  root: ${BRAINDATA_ROOT}/ds004078
   snapshot: 1.2.1
   subjects: [sub-01]
   preprocessed_dir: derivatives/preprocessed_data

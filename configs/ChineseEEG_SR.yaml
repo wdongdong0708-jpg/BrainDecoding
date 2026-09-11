@@ -1,6 +1,6 @@
 dataset:
   name: ChineseEEG1_SR
-  root: D:/dataset/ChineseEEG
+  root: ${BRAINDATA_ROOT}/ChineseEEG
   preprocessed_dir: derivatives/preproc/filtered_0.5_30
   stimulus_dir: derivatives/novels/segmented_novel
   text_embedding_dir: derivatives/text_embeddings

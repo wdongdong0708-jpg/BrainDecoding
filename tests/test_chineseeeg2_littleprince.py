@@ -338,7 +338,8 @@ def test_记录缓存按合同降采样且不重复滤波(tmp_path):
     assert metadata["signature"]["source_is_preprocessed"] is True
 
 
-def test_actual_reading配置保持单一数据合同():
+def test_actual_reading配置保持单一数据合同(monkeypatch):
+    monkeypatch.setenv("BRAINDATA_ROOT", "D:/dataset")
     project_root = Path(__file__).resolve().parents[1]
     scopes = (
         (

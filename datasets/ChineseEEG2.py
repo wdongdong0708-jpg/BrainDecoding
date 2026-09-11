@@ -15,12 +15,13 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
-from datasets.LibriBrain import (
-    _embedding_signature,
+from braindecoding.data.text import (
     ensure_text_embedding_cache,
     load_text_embedding_cache,
     normalize_word,
+    text_embedding_signature,
 )
+from braindecoding.events import add_core_event_columns
 
 
 记录名规则 = re.compile(
@@ -496,7 +497,7 @@ def 构建实际朗读事件表(config) -> pd.DataFrame:
     """构建单声音或多声音实际朗读事件，并统一冻结训练词表。"""
     sources = config.get("actual_reading_sources")
     if not sources:
-        return _构建单一实际朗读事件表(config)
+        return add_event_contract(_构建单一实际朗读事件表(config))
     if not isinstance(sources, list) or len(sources) < 2:
         raise ValueError("多声音实际朗读合同至少需要两项事件源。")
 
@@ -542,9 +543,33 @@ def 构建实际朗读事件表(config) -> pd.DataFrame:
     frame["vocabulary_rank"] = (
         frame["normalized_word"].map(rank).fillna(0).astype(int)
     )
-    return frame.sort_values(
+    frame = frame.sort_values(
         ["voice_version", "chapter", "word_index", "subject_id"]
     ).reset_index(drop=True)
+    return add_event_contract(frame)
+
+
+def add_event_contract(event_table: pd.DataFrame) -> pd.DataFrame:
+    """保持现有事件顺序，追加 ChineseEEG2 中文公共字段。"""
+    material_ids = pd.Series(
+        [
+            f"ChineseEEG2|littleprince|chapter-{int(chapter):02d}|voice-{voice}"
+            for chapter, voice in zip(
+                event_table["chapter"], event_table["voice_version"]
+            )
+        ],
+        index=event_table.index,
+    )
+    split_units = event_table["chapter"].map(
+        lambda chapter: f"ChineseEEG2|littleprince|chapter-{int(chapter):02d}"
+    )
+    return add_core_event_columns(
+        event_table,
+        material_ids=material_ids,
+        split_units=split_units,
+        start_times=event_table["aligned_start_seconds"],
+        end_times=event_table["aligned_stop_seconds"],
+    )
 
 
 def 审计事件表(event_table, config) -> dict:
@@ -1005,7 +1030,7 @@ class ChineseEEG2LittlePrinceWordDataset(Dataset):
         self.zero_eeg = bool(zero_eeg)
         self.embedding_map = load_text_embedding_cache(
             embedding_cache_path,
-            expected_signature=_embedding_signature(text_embedding_config),
+            expected_signature=text_embedding_signature(text_embedding_config),
         )
         missing = sorted(
             set(self.table["normalized_word"].astype(str)) - set(self.embedding_map)

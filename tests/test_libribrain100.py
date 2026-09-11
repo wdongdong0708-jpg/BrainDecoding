@@ -5,10 +5,9 @@ import numpy as np
 import pandas as pd
 import torch
 
+from braindecoding.data.text import normalize_word, text_embedding_signature
 from datasets.LibriBrain import (
-    _embedding_signature,
     materialize_recording_cache,
-    normalize_word,
     processed_recording_path,
 )
 from losses import build_siglip_loss
@@ -23,7 +22,8 @@ def test_word_cleanup_matches_source_contract():
     assert normalize_word("co-operate") == "co-operate"
 
 
-def test_cnn_warm_start_config_only_changes_training_stage():
+def test_cnn_warm_start_config_only_changes_training_stage(monkeypatch):
+    monkeypatch.setenv("BRAINDATA_ROOT", "D:/dataset")
     base = load_config("configs/LibriBrain100_1s.yaml")
     warm = load_config("configs/LibriBrain100_1s_cnn_warm_start.yaml")
     assert warm["dataset"] == base["dataset"]
@@ -187,7 +187,7 @@ def test_one_epoch_training_pipeline_on_synthetic_cache(tmp_path):
         json.dumps(
             {
                 "status": "materialized",
-                "signature": _embedding_signature(text_config),
+                "signature": text_embedding_signature(text_config),
                 "word_count": 2,
                 "embedding_dimension": 8,
             }
