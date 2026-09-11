@@ -18,6 +18,7 @@ except ImportError:  # 通过脚本或 run.py 直接加载时没有父包。
     import train as training
 
 from braindecoding.data import libribrain as dataset_module
+from braindecoding.experiment import evaluation_output_path
 from models import build_brain_embedding_model
 from braindecoding.evaluation.ovmi import fixed_vocabulary_ovmi_metrics
 
@@ -106,10 +107,8 @@ def evaluate_checkpoint(
         summary["controls"]["zero_meg"] = zero_metrics
 
     if save:
-        output_dir = Path(config["training"]["output_dir"])
-        suffix = "_smoke" if smoke else ""
         training.save_json(
-            output_dir / f"evaluation_{split}{suffix}.json", summary
+            evaluation_output_path(config, split, smoke=smoke), summary
         )
     return summary
 

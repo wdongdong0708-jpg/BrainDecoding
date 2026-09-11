@@ -1,0 +1,8 @@
+extends: ../../../SMN4Lang_1s_single_word_transformer.yaml
+
+experiment:
+  task: word_decoding
+  dataset: smn4lang
+  subject_scope: sub01
+  id: ablation_context_singleton
+  category: ablation

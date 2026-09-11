@@ -20,6 +20,11 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from braindecoding.config import load_yaml_with_extends, project_path
+from braindecoding.experiment import (
+    initialize_run_directory,
+    resolve_experiment_config,
+    update_run_status,
+)
 from braindecoding.training.runtime import (
     choose_device,
     cpu_state_dict,
@@ -50,6 +55,7 @@ from optimizers import (
 def load_config(path=None):
     config_path = project_path(path or DEFAULT_CONFIG)
     config = load_yaml_with_extends(config_path)
+    config = resolve_experiment_config(config)
     for key in ("event_table", "meg_dir", "text_embeddings"):
         config["cache"][key] = str(project_path(config["cache"][key]))
     config["training"]["output_dir"] = str(
@@ -530,12 +536,26 @@ def main(argv=None):
         )
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return
-    summary = run_training(
-        config,
-        smoke=args.smoke,
-        save=not args.no_save,
-        force_cache=args.force_cache,
-    )
+    run_output = None
+    if "experiment" in config and not args.no_save:
+        command_args = list(argv) if argv is not None else sys.argv[1:]
+        run_output, _ = initialize_run_directory(
+            config,
+            [sys.executable, str(Path(__file__).resolve()), *command_args],
+        )
+    try:
+        summary = run_training(
+            config,
+            smoke=args.smoke,
+            save=not args.no_save,
+            force_cache=args.force_cache,
+        )
+    except BaseException:
+        if run_output is not None:
+            update_run_status(run_output, "failed")
+        raise
+    if run_output is not None:
+        update_run_status(run_output, "completed")
     print_training_summary(summary)
 
 

@@ -1,0 +1,3 @@
+extends: ../../ChineseEEG2_LittlePrince.yaml
+
+# 非运行配置；仅保存当前数据集公共科学参数。

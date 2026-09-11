@@ -19,6 +19,11 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from braindecoding.config import load_yaml_with_extends, project_path
+from braindecoding.experiment import (
+    initialize_run_directory,
+    resolve_experiment_config,
+    update_run_status,
+)
 from datasets import ChineseEEG_SR as dataset_module
 from losses import multi_positive_contrastive_loss
 from metrics import (
@@ -35,6 +40,7 @@ def load_config(path=None):
     """读取任务配置并解析项目内路径。"""
     config_path = Path(path) if path else DEFAULT_CONFIG
     config = load_yaml_with_extends(config_path)
+    config = resolve_experiment_config(config)
     config["cache_dir"] = str(project_path(config.get("cache_dir", "cache")))
     for section, key in (
         ("training", "event_table"),
@@ -51,6 +57,18 @@ def load_dataset_module(dataset_name):
     if dataset_name not in {"ChineseEEG1_SR", "ChineseEEG_SR"}:
         raise ValueError(f"当前训练入口不支持数据集：{dataset_name}")
     return dataset_module
+
+
+def validate_run_section(config, closed_set_loso=False):
+    """阻止拆分后的 canonical 配置运行另一个历史科学条件。"""
+    configured = config.get("run_section")
+    if configured is None:
+        return
+    requested = "closed_set_diagnostic" if closed_set_loso else "training"
+    if configured != requested:
+        raise ValueError(
+            f"当前 canonical 配置只允许运行 {configured}，不能运行 {requested}。"
+        )
 
 
 def save_event_table(event_table, novel, cache_dir):
@@ -1049,10 +1067,29 @@ def main(argv=None):
     if args.prepare:
         print(prepare_event_table(config))
         return
-    if args.closed_set_loso:
-        summary, top_ks = run_closed_set_loso(
-            config, smoke=args.smoke, save=not args.no_save
+    validate_run_section(config, closed_set_loso=args.closed_set_loso)
+    run_output = None
+    if (
+        "experiment" in config
+        and not args.no_save
+        and not args.evaluate_checkpoint
+    ):
+        command_args = list(argv) if argv is not None else sys.argv[1:]
+        run_output, _ = initialize_run_directory(
+            config,
+            [sys.executable, str(Path(__file__).resolve()), *command_args],
         )
+    if args.closed_set_loso:
+        try:
+            summary, top_ks = run_closed_set_loso(
+                config, smoke=args.smoke, save=not args.no_save
+            )
+        except BaseException:
+            if run_output is not None:
+                update_run_status(run_output, "failed")
+            raise
+        if run_output is not None:
+            update_run_status(run_output, "completed")
         print_closed_set_summary(summary, top_ks)
         return
     if args.evaluate_checkpoint:
@@ -1065,7 +1102,14 @@ def main(argv=None):
         )
         print_paired_analysis(analysis, top_ks)
         return
-    summary = run_training(config, smoke=args.smoke, save=not args.no_save)
+    try:
+        summary = run_training(config, smoke=args.smoke, save=not args.no_save)
+    except BaseException:
+        if run_output is not None:
+            update_run_status(run_output, "failed")
+        raise
+    if run_output is not None:
+        update_run_status(run_output, "completed")
     print_training_summary(summary, tuple(config["training"]["top_ks"]))
 
 

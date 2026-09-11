@@ -1,0 +1,8 @@
+extends: ../../../SMN4Lang_gpt2.yaml
+
+experiment:
+  task: word_decoding
+  dataset: smn4lang
+  subject_scope: sub01
+  id: ablation_text_gpt2_context
+  category: ablation

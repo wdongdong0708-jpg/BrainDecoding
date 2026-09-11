@@ -1,0 +1,10 @@
+extends: ../../../ChineseEEG_SR.yaml
+
+experiment:
+  task: sequence_decoding
+  dataset: chineseeeg1_sr
+  subject_scope: sub04-10_sub13-14
+  id: historical_row_retrieval_fourier_subject
+  category: historical_diagnostic
+
+run_section: training

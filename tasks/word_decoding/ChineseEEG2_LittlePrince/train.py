@@ -25,6 +25,11 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from braindecoding.config import load_yaml_with_extends, project_path
+from braindecoding.experiment import (
+    initialize_run_directory,
+    resolve_experiment_config,
+    update_run_status,
+)
 from braindecoding.training.runtime import (
     choose_device,
     cpu_state_dict,
@@ -47,6 +52,7 @@ def 载入配置(path=None):
     """载入单一任务配置，并展开项目内的输出与缓存路径。"""
     config_path = project_path(path or DEFAULT_CONFIG)
     config = load_yaml_with_extends(config_path)
+    config = resolve_experiment_config(config)
     for key in ("event_table", "eeg_dir", "text_embeddings"):
         config["cache"][key] = str(project_path(config["cache"][key]))
     config["training"]["output_dir"] = str(
@@ -791,12 +797,26 @@ def main(argv=None):
         )
         print(yaml.safe_dump(summary, allow_unicode=True, sort_keys=False))
         return
-    summary = 执行训练(
-        config,
-        smoke=args.smoke,
-        save=not args.no_save,
-        force_cache=args.force_cache,
-    )
+    run_output = None
+    if "experiment" in config and not args.no_save:
+        command_args = list(argv) if argv is not None else sys.argv[1:]
+        run_output, _ = initialize_run_directory(
+            config,
+            [sys.executable, str(Path(__file__).resolve()), *command_args],
+        )
+    try:
+        summary = 执行训练(
+            config,
+            smoke=args.smoke,
+            save=not args.no_save,
+            force_cache=args.force_cache,
+        )
+    except BaseException:
+        if run_output is not None:
+            update_run_status(run_output, "failed")
+        raise
+    if run_output is not None:
+        update_run_status(run_output, "completed")
     打印训练摘要(summary)
 
 

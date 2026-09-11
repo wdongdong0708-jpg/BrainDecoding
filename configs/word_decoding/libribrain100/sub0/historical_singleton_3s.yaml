@@ -1,0 +1,8 @@
+extends: ../../../LibriBrain100_3s_single_word_transformer.yaml
+
+experiment:
+  task: word_decoding
+  dataset: libribrain100
+  subject_scope: sub0
+  id: historical_singleton_3s
+  category: historical_diagnostic

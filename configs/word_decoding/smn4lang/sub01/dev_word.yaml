@@ -1,0 +1,8 @@
+extends: ../../../SMN4Lang_1s_conv_only.yaml
+
+experiment:
+  task: word_decoding
+  dataset: smn4lang
+  subject_scope: sub01
+  id: dev_word
+  category: development

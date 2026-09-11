@@ -1,0 +1,8 @@
+extends: ../../../ChineseEEG2_LittlePrince_sub01_actual_reading_1s.yaml
+
+experiment:
+  task: word_decoding
+  dataset: chineseeeg2_littleprince
+  subject_scope: sub01
+  id: ablation_context_scratch
+  category: ablation

@@ -1,0 +1,3 @@
+extends: ../../ChineseEEG_SR.yaml
+
+# 非运行配置；旧文件中的两个独立诊断由下级配置选择。

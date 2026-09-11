@@ -20,6 +20,7 @@ except ImportError:
     import train as training
 
 from braindecoding.data import chineseeeg2 as dataset_module
+from braindecoding.experiment import evaluation_output_path
 from models import build_brain_embedding_model
 from braindecoding.evaluation.ovmi import fixed_vocabulary_ovmi_metrics
 
@@ -140,10 +141,8 @@ def 评估检查点(
         summary["controls"]["zero_eeg"] = zero_metrics
 
     if save:
-        output_dir = Path(config["training"]["output_dir"])
-        suffix = "_smoke" if smoke else ""
         training.save_json(
-            output_dir / f"evaluation_{split}{suffix}.json", summary
+            evaluation_output_path(config, split, smoke=smoke), summary
         )
     return summary
 

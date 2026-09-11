@@ -1,0 +1,11 @@
+extends: ../../../ChineseEEG2_LittlePrince_sub01_sub02_actual_reading_1s_cnn_warm_start.yaml
+
+experiment:
+  task: word_decoding
+  dataset: chineseeeg2_littleprince
+  subject_scope: sub01-02
+  id: scaling_context_row
+  category: scaling
+
+training:
+  warm_start_from: scaling_word
