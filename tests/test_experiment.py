@@ -317,13 +317,13 @@ def test_archive_only_orphans_have_no_runnable_canonical_identity():
 
 
 def test_task_loaders_inject_canonical_output_and_warm_start_paths():
-    from tasks.sequence_decoding.ChineseEEG_SR.train import (
+    from braindecoding.tasks.sequence_decoding.chineseeeg_sr.train import (
         load_config as load_sequence,
         validate_run_section,
     )
-    from tasks.word_decoding.ChineseEEG2_LittlePrince.train import 载入配置
-    from tasks.word_decoding.LibriBrain100.train import load_config as load_libribrain
-    from tasks.word_decoding.SMN4Lang.train import load_config as load_smn4lang
+    from braindecoding.tasks.word_decoding.chineseeeg2_littleprince.train import 载入配置
+    from braindecoding.tasks.word_decoding.libribrain100.train import load_config as load_libribrain
+    from braindecoding.tasks.word_decoding.smn4lang.train import load_config as load_smn4lang
 
     cases = (
         (
@@ -386,25 +386,25 @@ def test_canonical_base_files_are_explicitly_non_runnable():
     "module_name,loader_name,runner_name,printer_name",
     (
         (
-            "tasks.word_decoding.ChineseEEG2_LittlePrince.train",
+            "braindecoding.tasks.word_decoding.chineseeeg2_littleprince.train",
             "载入配置",
             "执行训练",
             "打印训练摘要",
         ),
         (
-            "tasks.word_decoding.SMN4Lang.train",
+            "braindecoding.tasks.word_decoding.smn4lang.train",
             "load_config",
             "run_training",
             "print_training_summary",
         ),
         (
-            "tasks.word_decoding.LibriBrain100.train",
+            "braindecoding.tasks.word_decoding.libribrain100.train",
             "load_config",
             "run_training",
             "print_training_summary",
         ),
         (
-            "tasks.sequence_decoding.ChineseEEG_SR.train",
+            "braindecoding.tasks.sequence_decoding.chineseeeg_sr.train",
             "load_config",
             "run_training",
             "print_training_summary",
@@ -445,7 +445,7 @@ def test_canonical_cli_records_running_then_completed_without_real_training(
 
 
 def test_canonical_cli_marks_failed_run_without_real_training(monkeypatch, tmp_path):
-    module = importlib.import_module("tasks.word_decoding.SMN4Lang.train")
+    module = importlib.import_module("braindecoding.tasks.word_decoding.smn4lang.train")
     config = _minimal_config()
     statuses = []
     monkeypatch.setattr(module, "load_config", lambda path: copy.deepcopy(config))

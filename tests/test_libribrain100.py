@@ -10,11 +10,11 @@ from braindecoding.data.libribrain import (
     materialize_recording_cache,
     processed_recording_path,
 )
-from losses import build_siglip_loss
+from braindecoding.losses import build_siglip_loss
 from braindecoding.evaluation.retrieval import fixed_vocabulary_retrieval_metrics
-from models import build_brain_embedding_model
-from tasks.word_decoding.LibriBrain100.evaluate import evaluate_checkpoint
-from tasks.word_decoding.LibriBrain100.train import load_config, run_training
+from braindecoding.models import build_brain_embedding_model
+from braindecoding.tasks.word_decoding.libribrain100.evaluate import evaluate_checkpoint
+from braindecoding.tasks.word_decoding.libribrain100.train import load_config, run_training
 
 
 def test_word_cleanup_matches_source_contract():

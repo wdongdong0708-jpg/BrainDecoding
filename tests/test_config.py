@@ -10,20 +10,20 @@ from braindecoding.config import (
     load_yaml_with_extends,
     project_path,
 )
-from tasks.sequence_decoding.ChineseEEG_SR.train import (
+from braindecoding.tasks.sequence_decoding.chineseeeg_sr.train import (
     load_config as load_chineseeeg_sr_config,
 )
-from tasks.word_decoding.ChineseEEG2_LittlePrince.train import 载入配置
-from tasks.word_decoding.LibriBrain100.train import load_config as load_libribrain_config
-from tasks.word_decoding.SMN4Lang.train import load_config as load_smn4lang_config
+from braindecoding.tasks.word_decoding.chineseeeg2_littleprince.train import 载入配置
+from braindecoding.tasks.word_decoding.libribrain100.train import load_config as load_libribrain_config
+from braindecoding.tasks.word_decoding.smn4lang.train import load_config as load_smn4lang_config
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 TRAIN_ENTRY_PATHS = (
-    PROJECT_ROOT / "tasks/sequence_decoding/ChineseEEG_SR/train.py",
-    PROJECT_ROOT / "tasks/word_decoding/LibriBrain100/train.py",
-    PROJECT_ROOT / "tasks/word_decoding/SMN4Lang/train.py",
-    PROJECT_ROOT / "tasks/word_decoding/ChineseEEG2_LittlePrince/train.py",
+    PROJECT_ROOT / "braindecoding/tasks/sequence_decoding/chineseeeg_sr/train.py",
+    PROJECT_ROOT / "braindecoding/tasks/word_decoding/libribrain100/train.py",
+    PROJECT_ROOT / "braindecoding/tasks/word_decoding/smn4lang/train.py",
+    PROJECT_ROOT / "braindecoding/tasks/word_decoding/chineseeeg2_littleprince/train.py",
 )
 DATASET_ROOT_CONFIGS = (
     (

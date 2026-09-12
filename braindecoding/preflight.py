@@ -1,0 +1,344 @@
+"""只读检查六个 active word-decoding 实验是否可进入正式训练。"""
+
+from __future__ import annotations
+
+import argparse
+import copy
+import json
+import os
+from pathlib import Path
+
+from braindecoding.catalog import discover_experiment_configs
+from braindecoding.config import PROJECT_ROOT, load_yaml_with_extends
+from braindecoding.data.build import check_dataset
+from braindecoding.data.derived import stable_sha256
+from braindecoding.experiment import (
+    experiment_identity,
+    git_tracked_dirty,
+    resolve_experiment_config,
+    resolved_config_sha256,
+    run_directory,
+    scientific_config_sha256,
+    warm_start_checkpoint,
+)
+ACTIVE_CONFIGS = tuple(
+    record["relative_config"] for record in discover_experiment_configs()
+)
+
+EXPECTED_SUBJECTS = {
+    "chineseeeg2_littleprince": tuple(f"sub-{index:02d}" for index in range(1, 9)),
+    "smn4lang": tuple(f"sub-{index:02d}" for index in range(1, 7)),
+    "libribrain100": ("sub-0",),
+}
+
+_LEGACY_TOKENS = (
+    "tasks/word_decoding/ChineseEEG2_LittlePrince/cache",
+    "tasks/word_decoding/SMN4Lang/cache",
+    "tasks/word_decoding/LibriBrain100/cache",
+    "configs/ChineseEEG2_LittlePrince",
+    "configs/SMN4Lang",
+    "configs/LibriBrain100",
+    "outputs/ChineseEEG2_LittlePrince",
+    "outputs/SMN4Lang",
+    "outputs/LibriBrain100",
+)
+
+
+def _load_resolved_config(relative_path: str, output_root=None) -> dict:
+    config = load_yaml_with_extends(PROJECT_ROOT / relative_path)
+    return resolve_experiment_config(config, output_root=output_root)
+
+
+def _stable_config_hashes(relative_path: str, output_root=None) -> dict:
+    first = _load_resolved_config(relative_path, output_root=output_root)
+    second = _load_resolved_config(relative_path, output_root=output_root)
+    scientific_first = scientific_config_sha256(first)
+    resolved_first = resolved_config_sha256(first)
+    return {
+        "config": first,
+        "scientific_config_sha256": scientific_first,
+        "scientific_config_sha256_stable": (
+            scientific_first == scientific_config_sha256(second)
+        ),
+        "resolved_config_sha256": resolved_first,
+        "resolved_config_sha256_stable": (
+            resolved_first == resolved_config_sha256(second)
+        ),
+    }
+
+
+def _pre_cleanup_scientific_hashes() -> dict[str, str]:
+    path = PROJECT_ROOT / "experiments/cleanup_manifest.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return {
+        record["config"]: record["scientific_config_sha256_before"]
+        for record in payload["active_configs"].values()
+    }
+
+
+def _dataset_manifest(dataset: str) -> dict:
+    path = PROJECT_ROOT / "derived" / dataset / "manifest.json"
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _output_status(config: dict, output_root=None) -> dict:
+    path = run_directory(config, output_root=output_root)
+    manifest_path = path / "run_manifest.json"
+    result = {
+        "path": str(path),
+        "exists": path.exists(),
+        "status": "available",
+        "collision": False,
+    }
+    if not path.exists():
+        return result
+    if not manifest_path.is_file():
+        return {**result, "status": "collision_missing_manifest", "collision": True}
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    result["existing_run_status"] = manifest.get("status")
+    if manifest.get("resolved_config_sha256") != resolved_config_sha256(config):
+        return {**result, "status": "collision_config_sha_mismatch", "collision": True}
+    if manifest.get("status") == "completed":
+        return {**result, "status": "collision_completed_run", "collision": True}
+    return {**result, "status": "resume_required", "collision": True}
+
+
+def _dependency_status(config: dict, active_identities: set[tuple], output_root=None) -> dict:
+    checkpoint = warm_start_checkpoint(config, output_root=output_root)
+    if checkpoint is None:
+        return {"status": "not_required", "checkpoint": None}
+    source = copy.deepcopy(config)
+    source["experiment"]["id"] = config["training"]["warm_start_from"]
+    source_identity = experiment_identity(source)
+    identity_key = tuple(source_identity.values())
+    if identity_key not in active_identities:
+        return {
+            "status": "invalid_upstream_identity",
+            "checkpoint": str(checkpoint),
+            "upstream_identity": source_identity,
+        }
+    return {
+        "status": "ready" if checkpoint.is_file() else "waiting_for_upstream",
+        "checkpoint": str(checkpoint),
+        "upstream_identity": source_identity,
+    }
+
+
+def _legacy_dependency_status(relative_path: str, config: dict) -> dict:
+    leaf_path = PROJECT_ROOT / relative_path
+    leaf = leaf_path.read_text(encoding="utf-8").replace("\\", "/")
+    base_path = leaf_path.parent.parent / "base.yaml"
+    base = base_path.read_text(encoding="utf-8").replace("\\", "/")
+    serialized = json.dumps(config, ensure_ascii=False).replace("\\", "/")
+    matches = [token for token in _LEGACY_TOKENS if token in leaf or token in base or token in serialized]
+    return {
+        "status": "none" if not matches else "found",
+        "legacy_tokens": matches,
+        "extends": "../base.yaml" if "extends: ../base.yaml" in leaf else None,
+        "base_has_extends": "extends:" in base,
+    }
+
+
+def _subject_status(dataset: str, config: dict, event_manifest: dict) -> dict:
+    expected = EXPECTED_SUBJECTS[dataset]
+    event_subjects = tuple(event_manifest.get("subjects", ()))
+    config_subjects = tuple(config["dataset"].get("subjects", event_subjects))
+    return {
+        "expected": list(expected),
+        "config": list(config_subjects),
+        "event_manifest": list(event_subjects),
+        "matches": config_subjects == expected and event_subjects == expected,
+    }
+
+
+def _production_legacy_references() -> list[dict]:
+    """扫描 active 训练与公共实现中的旧配置、缓存和输出依赖。"""
+    paths = [
+        path
+        for path in sorted((PROJECT_ROOT / "braindecoding").rglob("*.py"))
+        if path.resolve() != Path(__file__).resolve()
+    ]
+    matches = []
+    for path in paths:
+        text = path.read_text(encoding="utf-8").replace("\\", "/")
+        for token in _LEGACY_TOKENS:
+            if token in text:
+                matches.append(
+                    {
+                        "path": path.relative_to(PROJECT_ROOT).as_posix(),
+                        "token": token,
+                    }
+                )
+    return matches
+
+
+def build_preflight_report(*, output_root=None) -> dict:
+    """执行只读 preflight；不创建运行目录，也不加载模型。"""
+    git_dirty = git_tracked_dirty()
+    hashes_before = _pre_cleanup_scientific_hashes()
+    derived_checks = {dataset: check_dataset(dataset) for dataset in EXPECTED_SUBJECTS}
+    loaded = {
+        path: _stable_config_hashes(path, output_root=output_root)
+        for path in ACTIVE_CONFIGS
+    }
+    identities = {
+        path: experiment_identity(record["config"])
+        for path, record in loaded.items()
+    }
+    identity_keys = [tuple(identity.values()) for identity in identities.values()]
+    identities_unique = len(identity_keys) == len(set(identity_keys))
+    active_identity_set = set(identity_keys)
+    production_legacy_references = _production_legacy_references()
+
+    experiments = []
+    for relative_path in ACTIVE_CONFIGS:
+        hash_record = loaded[relative_path]
+        config = hash_record.pop("config")
+        identity = identities[relative_path]
+        dataset = identity["dataset"]
+        dataset_manifest = _dataset_manifest(dataset)
+        components = dataset_manifest["components"]
+        event_manifest_path = PROJECT_ROOT / components["events"]["manifest"]
+        event_manifest = json.loads(event_manifest_path.read_text(encoding="utf-8"))
+        output = _output_status(config, output_root=output_root)
+        dependency = _dependency_status(
+            config, active_identity_set, output_root=output_root
+        )
+        legacy = _legacy_dependency_status(relative_path, config)
+        subjects = _subject_status(dataset, config, event_manifest)
+        default_split = config.get("evaluation", {}).get("default_split")
+        science_matches = (
+            hash_record["scientific_config_sha256"] == hashes_before[relative_path]
+        )
+
+        reasons = []
+        if git_dirty:
+            reasons.append("git_dirty")
+        if not identities_unique:
+            reasons.append("duplicate_experiment_identity")
+        if derived_checks[dataset]["status"] != "complete":
+            reasons.append("derived_incomplete")
+        if not subjects["matches"]:
+            reasons.append("subject_order_mismatch")
+        if (
+            legacy["status"] != "none"
+            or legacy["base_has_extends"]
+            or legacy["extends"] != "../base.yaml"
+            or production_legacy_references
+        ):
+            reasons.append("legacy_dependency")
+        if not hash_record["scientific_config_sha256_stable"] or not science_matches:
+            reasons.append("scientific_config_sha_mismatch")
+        if not hash_record["resolved_config_sha256_stable"]:
+            reasons.append("resolved_config_sha_unstable")
+        if output["collision"]:
+            reasons.append(output["status"])
+        if default_split != "val":
+            reasons.append("default_evaluation_split_is_not_val")
+        if dependency["status"] == "invalid_upstream_identity":
+            reasons.append("invalid_upstream_identity")
+        if dependency["status"] == "waiting_for_upstream":
+            reasons.append("waiting_for_upstream")
+        if (
+            dataset == "chineseeeg2_littleprince"
+            and identity["experiment_id"] == "main_context"
+            and config["dataset"].get("context_grouping") != "bounded_semantic_v1"
+        ):
+            reasons.append("main_context_is_not_semantic_v1")
+
+        blockers = [reason for reason in reasons if reason != "waiting_for_upstream"]
+        if blockers:
+            ready: bool | str = False
+        elif dependency["status"] == "waiting_for_upstream":
+            ready = "waiting_for_upstream"
+        else:
+            ready = True
+        experiments.append(
+            {
+                "identity": identity,
+                "config": relative_path,
+                **hash_record,
+                "scientific_contract_matches_cleanup_baseline": science_matches,
+                "derived_status": derived_checks[dataset]["status"],
+                "event_status": {
+                    "status": components["events"]["status"],
+                    "manifest": components["events"]["manifest"],
+                    "manifest_sha256": components["events"]["sha256"],
+                    "event_table_sha256": components["events"]["event_table_sha256"],
+                },
+                "signal_status": {
+                    "status": components["signals"]["status"],
+                    "manifest": components["signals"]["manifest"],
+                    "manifest_sha256": components["signals"]["sha256"],
+                    "coverage": derived_checks[dataset]["signal_coverage"],
+                },
+                "text_status": {
+                    "status": components["text"]["status"],
+                    "manifest": components["text"]["manifest"],
+                    "manifest_sha256": components["text"]["sha256"],
+                    "contract": derived_checks[dataset]["text_contract"],
+                },
+                "subject_scope": subjects,
+                "output_path": output,
+                "dependency_status": dependency,
+                "test_guard_status": {
+                    "status": "validation_only" if default_split == "val" else "invalid",
+                    "default_split": default_split,
+                    "test_model_evaluation_run": False,
+                },
+                "legacy_dependency": legacy,
+                "git_status": "dirty" if git_dirty else "clean",
+                "ready": ready,
+                "reasons": reasons,
+            }
+        )
+
+    report = {
+        "schema_version": 1,
+        "status": "ready" if all(item["ready"] is True for item in experiments) else "not_ready",
+        "git": {
+            "tracked_dirty": git_dirty,
+            "status": "dirty" if git_dirty else "clean",
+            "not_ready_reason": "git_dirty" if git_dirty else None,
+        },
+        "identity_unique": identities_unique,
+        "production_legacy_references": production_legacy_references,
+        "derived_checks": derived_checks,
+        "experiments": experiments,
+        "side_effects": {
+            "run_directories_created": False,
+            "checkpoints_generated": False,
+            "model_evaluation_run": False,
+            "test_model_evaluation_run": False,
+        },
+    }
+    report["report_sha256"] = stable_sha256(report)
+    return report
+
+
+def write_report(report: dict, path: Path) -> None:
+    """稳定写入 preflight JSON；目标不在 outputs 中。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(temporary, path)
+
+
+def main(argv=None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=PROJECT_ROOT / "experiments/preflight_report.json",
+    )
+    args = parser.parse_args(argv)
+    report = build_preflight_report()
+    write_report(report, args.output)
+    print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
+
+
+if __name__ == "__main__":
+    main()

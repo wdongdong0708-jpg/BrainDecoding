@@ -21,7 +21,7 @@ split:
       val: [6]
       test: [7]
 
-cache_dir: cache/ChineseEEG1_SR
+cache_dir: derived/chineseeeg1_sr/events
 
 field_names:
   dataset: 数据集
@@ -60,7 +60,7 @@ model:
   dropout: 0.1
 
 training:
-  event_table: cache/ChineseEEG1_SR/ChineseEEG_LittlePrince_run_split.xlsx
+  event_table: derived/chineseeeg1_sr/events/ChineseEEG_LittlePrince_run_split.xlsx
   output_dir: outputs/ChineseEEG1_SR/LittlePrince_fourier_subject_row_retrieval
   seed: 42
   device: auto

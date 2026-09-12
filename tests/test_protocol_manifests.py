@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from experiments import generate_manifests as manifests
+from braindecoding import protocols as manifests
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]

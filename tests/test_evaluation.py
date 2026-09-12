@@ -1,18 +1,11 @@
 """公共词表、检索和 OVMI 评价边界的行为锁定测试。"""
 
-import ast
 import json
-from pathlib import Path
 
 import numpy as np
 import pytest
 
-import metrics as legacy_retrieval
-import ovmi_metrics as legacy_ovmi
 from braindecoding.evaluation import ovmi, retrieval, vocabulary
-
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _embeddings():
@@ -28,18 +21,6 @@ def _embeddings():
     return query_embeddings, target_embeddings, target_words
 
 
-def test_retrieval_compatibility_exports_share_one_implementation():
-    names = (
-        "normalize_rows",
-        "retrieval_ranks",
-        "summarize_retrieval",
-        "fixed_vocabulary_top1_predictions",
-        "fixed_vocabulary_retrieval_metrics",
-    )
-    for name in names:
-        assert getattr(legacy_retrieval, name) is getattr(retrieval, name)
-
-
 def test_retrieval_ranks_and_ties_are_unchanged():
     query_embeddings = np.asarray([[1, 0], [0, 1], [1, 1]], dtype=np.float32)
     candidate_embeddings = np.asarray([[1, 0], [1, 0], [0, 1]], dtype=np.float32)
@@ -53,23 +34,11 @@ def test_retrieval_ranks_and_ties_are_unchanged():
         candidate_ids,
         chunk_size=1,
     )
-    expected = legacy_retrieval.retrieval_ranks(
-        query_embeddings,
-        target_ids,
-        candidate_embeddings,
-        candidate_ids,
-        chunk_size=1,
-    )
-    np.testing.assert_array_equal(actual, expected)
     np.testing.assert_array_equal(actual, [1.5, 1.0, 2.0])
 
     actual_summary = retrieval.summarize_retrieval(
         actual, target_ids, candidate_count=3, top_ks=(1, 2)
     )
-    expected_summary = legacy_retrieval.summarize_retrieval(
-        expected, target_ids, candidate_count=3, top_ks=(1, 2)
-    )
-    assert actual_summary == expected_summary
     assert actual_summary["micro_recall_at_1"] == pytest.approx(1 / 3)
     assert actual_summary["macro_recall_at_1"] == pytest.approx(0.5)
 
@@ -81,11 +50,11 @@ def test_fixed_vocabulary_predictions_and_metrics_are_unchanged():
     actual_predictions = retrieval.fixed_vocabulary_top1_predictions(
         query_embeddings, target_embeddings, target_words, candidates
     )
-    expected_predictions = legacy_retrieval.fixed_vocabulary_top1_predictions(
-        query_embeddings, target_embeddings, target_words, candidates
+    assert actual_predictions[:2] == (
+        ["alpha", "beta", "gamma", "alpha"],
+        ["alpha", "gamma", "gamma", "beta"],
     )
-    assert actual_predictions[:2] == expected_predictions[:2]
-    np.testing.assert_array_equal(actual_predictions[2], expected_predictions[2])
+    np.testing.assert_array_equal(actual_predictions[2], [0, 1, 2, 3])
 
     actual_metrics = retrieval.fixed_vocabulary_retrieval_metrics(
         query_embeddings,
@@ -94,27 +63,8 @@ def test_fixed_vocabulary_predictions_and_metrics_are_unchanged():
         candidates,
         vocabulary_name="test3",
     )
-    expected_metrics = legacy_retrieval.fixed_vocabulary_retrieval_metrics(
-        query_embeddings,
-        target_embeddings,
-        target_words,
-        candidates,
-        vocabulary_name="test3",
-    )
-    assert actual_metrics == expected_metrics
     assert actual_metrics["retrieval_acc1_vocab=test3"] == 0.5
     assert actual_metrics["retrieval_acc10_vocab=test3"] == 1.0
-
-
-def test_ovmi_compatibility_exports_share_one_implementation():
-    names = (
-        "build_confusion_matrix",
-        "load_reference_distribution",
-        "full_ovmi_metrics",
-        "fixed_vocabulary_ovmi_metrics",
-    )
-    for name in names:
-        assert getattr(legacy_ovmi, name) is getattr(ovmi, name)
 
 
 def test_confusion_full_ovmi_and_coverage_are_unchanged():
@@ -130,24 +80,14 @@ def test_confusion_full_ovmi_and_coverage_are_unchanged():
     }
 
     actual_matrix = ovmi.build_confusion_matrix(true_words, predicted_words, words)
-    expected_matrix = legacy_ovmi.build_confusion_matrix(
-        true_words, predicted_words, words
-    )
-    np.testing.assert_array_equal(actual_matrix, expected_matrix)
+    np.testing.assert_array_equal(actual_matrix, [[1, 1, 0], [0, 2, 0], [1, 0, 1]])
 
     actual = ovmi.full_ovmi_metrics(true_words, predicted_words, words, config)
-    expected = legacy_ovmi.full_ovmi_metrics(
-        true_words, predicted_words, words, config
-    )
-    assert actual == expected
-    for field in (
-        "score_bits",
-        "coverage",
-        "in_vocab_information_bits",
-        "output_entropy_bits",
-        "conditional_entropy_bits",
-    ):
-        assert actual[field] == expected[field]
+    assert actual["score_bits"] == pytest.approx(0.5787877108333521)
+    assert actual["coverage"] == pytest.approx(0.9090909090909091)
+    assert actual["in_vocab_information_bits"] == pytest.approx(0.6366664819166874)
+    assert actual["output_entropy_bits"] == pytest.approx(1.3366664819166874)
+    assert actual["conditional_entropy_bits"] == pytest.approx(0.7)
 
 
 def test_reference_mapping_json_and_csv_loading_are_unchanged(tmp_path):
@@ -158,9 +98,7 @@ def test_reference_mapping_json_and_csv_loading_are_unchanged(tmp_path):
     csv_path.write_text("word,count\n甲,3\n乙,2\n", encoding="utf-8")
 
     for source in (mapping, json_path, csv_path):
-        assert ovmi.load_reference_distribution(source) == (
-            legacy_ovmi.load_reference_distribution(source)
-        )
+        assert ovmi.load_reference_distribution(source) == mapping
 
 
 def test_missing_required_reference_is_explicitly_unavailable(tmp_path):
@@ -247,30 +185,21 @@ def test_story_reference_counts_only_explicit_words_and_is_independent():
 
 
 def test_word_evaluators_import_official_common_ovmi():
-    from tasks.word_decoding.ChineseEEG2_LittlePrince import evaluate as chinese
-    from tasks.word_decoding.LibriBrain100 import evaluate as libri
-    from tasks.word_decoding.SMN4Lang import evaluate as smn
+    from braindecoding.tasks.word_decoding.chineseeeg2_littleprince import evaluate as chinese
+    from braindecoding.tasks.word_decoding.libribrain100 import evaluate as libri
+    from braindecoding.tasks.word_decoding.smn4lang import evaluate as smn
 
     for module in (chinese, smn, libri):
         assert module.fixed_vocabulary_ovmi_metrics is ovmi.fixed_vocabulary_ovmi_metrics
 
 
 def test_word_training_evaluators_reach_the_same_retrieval_implementation():
-    from tasks.word_decoding.ChineseEEG2_LittlePrince import train as chinese
-    from tasks.word_decoding.LibriBrain100 import train as libri
-    from tasks.word_decoding.SMN4Lang import train as smn
+    from braindecoding.tasks.word_decoding.chineseeeg2_littleprince import train as chinese
+    from braindecoding.tasks.word_decoding.libribrain100 import train as libri
+    from braindecoding.tasks.word_decoding.smn4lang import train as smn
 
     for module in (chinese, smn, libri):
         assert (
             module.fixed_vocabulary_retrieval_metrics
             is retrieval.fixed_vocabulary_retrieval_metrics
-        )
-
-
-def test_root_metric_files_are_thin_compatibility_modules():
-    for relative_path in ("metrics.py", "ovmi_metrics.py"):
-        tree = ast.parse((PROJECT_ROOT / relative_path).read_text(encoding="utf-8"))
-        assert not any(
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-            for node in tree.body
         )

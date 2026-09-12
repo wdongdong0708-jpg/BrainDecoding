@@ -11,7 +11,7 @@ from braindecoding.data import text
 from braindecoding.data import chineseeeg2 as ChineseEEG2
 from braindecoding.data import libribrain as LibriBrain
 from braindecoding.data import smn4lang as SMN4Lang
-from datasets import LibriBrain as legacy_libribrain
+from braindecoding.data import libribrain as legacy_libribrain
 
 
 def _install_fake_transformers(monkeypatch, calls):

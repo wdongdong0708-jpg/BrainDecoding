@@ -16,19 +16,19 @@ BRAINDATA_ROOT + artifacts
 统一入口：
 
 ```powershell
-python experiments/build_derived_data.py --dataset chineseeeg2_littleprince --all
-python experiments/build_derived_data.py --dataset smn4lang --all
-python experiments/build_derived_data.py --dataset libribrain100 --all
+brain-decoding data build chineseeeg2_littleprince --all
+brain-decoding data build smn4lang --all
+brain-decoding data build libribrain100 --all
 ```
 
-canonical 模式不会回退到 `tasks/word_decoding/*/cache/`。旧配置仍可在清理前读取旧缓存。
+canonical 模式不会回退到已经移除的 task-local cache。
 
 只读完整性验证：
 
 ```powershell
-python experiments/build_derived_data.py --dataset chineseeeg2_littleprince --check
-python experiments/build_derived_data.py --dataset smn4lang --check
-python experiments/build_derived_data.py --dataset libribrain100 --check
+brain-decoding data check chineseeeg2_littleprince
+brain-decoding data check smn4lang
+brain-decoding data check libribrain100
 ```
 
 每个数据集根目录的 `manifest.json` 只在 events、signals、text 三个组件都通过

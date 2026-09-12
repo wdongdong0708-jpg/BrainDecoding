@@ -18,10 +18,6 @@ reports/legacy/*
 
 __pycache__/
 *.py[cod]
-
-tasks/sequence_decoding/ChineseEEG_SR/cache/
-tasks/word_decoding/LibriBrain100/cache/
-tasks/word_decoding/SMN4Lang/cache/
-tasks/word_decoding/ChineseEEG2_LittlePrince/cache/
+*.egg-info/
 .pytest*
 .env

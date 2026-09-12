@@ -1,2 +1,0 @@
-# 官方 OVMI；固定提交以保证评估结果可复现。
-ovmi @ git+https://github.com/neural-processing-lab/OVMI.git@5d3ef28245279ebc0165a0d19681cb9c563d535a

@@ -10,7 +10,7 @@ outputs/        可由 derived + configs 重建的单次模型结果
 reports/        跨实验表格、图和导出
 ```
 
-`experiments/build_derived_data.py` 是唯一 canonical 数据构建入口。缺少 derived
+`brain-decoding data build <dataset>` 是唯一 canonical 数据构建入口。缺少 derived
 产品时明确报错，不读取 task-local cache。事件先构建，随后信号、文本和 manifest
 验证；各数据集既有科学 builder、时间规则、划分和上下文定义保持不变。
 
@@ -64,7 +64,7 @@ manifest 验证并完成主要 baseline 复核以后，才考虑删除：
 三个数据集使用同一个只读入口：
 
 ```powershell
-python experiments/build_derived_data.py --dataset <dataset> --check
+brain-decoding data check <dataset>
 ```
 
 检查同时覆盖组件 manifest、自摘要、产品 SHA、事件到 recording 的一一覆盖、

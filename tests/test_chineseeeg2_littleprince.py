@@ -6,8 +6,8 @@ import pandas as pd
 import torch
 
 from braindecoding.data import chineseeeg2 as dataset_module
-from models import build_brain_embedding_model
-from tasks.word_decoding.ChineseEEG2_LittlePrince.train import (
+from braindecoding.models import build_brain_embedding_model
+from braindecoding.tasks.word_decoding.chineseeeg2_littleprince.train import (
     设置脑编码器可训练,
     载入配置,
     载入预训练脑编码器,
@@ -19,7 +19,7 @@ from tasks.word_decoding.ChineseEEG2_LittlePrince.train import (
 
 def test_审计位置基线不读取词身份且并列排名一致():
     """结构特征不随词内容改变，并列分数不能靠候选顺序制造命中。"""
-    from tasks.word_decoding.ChineseEEG2_LittlePrince.audit import 位置特征, 分数排名
+    from braindecoding.tasks.word_decoding.chineseeeg2_littleprince.audit import 位置特征, 分数排名
     frame = pd.DataFrame(dict(sentence_uid=["a", "a", "b"], event_id=["1", "2", "3"],
                               normalized_word=["我", "你", "他"]))
     changed = frame.copy()

@@ -10,7 +10,7 @@ from scipy.io import savemat
 from braindecoding.data import sensors
 from braindecoding.data.sensors import vectorview_channel_positions
 from braindecoding.data.text import text_embedding_signature
-from datasets import LibriBrain as libribrain_module
+from braindecoding.data import libribrain as libribrain_module
 from braindecoding.data import smn4lang as dataset_module
 from braindecoding.data.smn4lang import (
     ensure_repository_gpt2_word_prototypes,
@@ -22,10 +22,10 @@ from braindecoding.data.smn4lang import (
     training_event_mask,
 )
 from braindecoding.training.word import SentenceBatchSampler
-from tasks.word_decoding.SMN4Lang.evaluate import evaluate_checkpoint
-from tasks.word_decoding.SMN4Lang.train import load_config, run_training
-from models import build_brain_embedding_model
-from tasks.word_decoding.SMN4Lang.train import (
+from braindecoding.tasks.word_decoding.smn4lang.evaluate import evaluate_checkpoint
+from braindecoding.tasks.word_decoding.smn4lang.train import load_config, run_training
+from braindecoding.models import build_brain_embedding_model
+from braindecoding.tasks.word_decoding.smn4lang.train import (
     load_pretrained_brain_encoder,
     set_brain_encoder_trainable,
 )

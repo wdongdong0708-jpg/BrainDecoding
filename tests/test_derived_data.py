@@ -20,7 +20,7 @@ from braindecoding.data.derived import (
 )
 from braindecoding.events import CORE_EVENT_COLUMNS
 from braindecoding.experiment import resolve_experiment_config
-from experiments import build_derived_data
+from braindecoding.data import build as build_derived_data
 
 
 def _event_table():
@@ -183,7 +183,7 @@ def test_smn4lang_six_subject_main_configs_are_explicit(monkeypatch):
 
 def test_build_entry_has_no_legacy_cache_fallback():
     root = Path(__file__).resolve().parents[1]
-    source = (root / "experiments/build_derived_data.py").read_text(encoding="utf-8")
+    source = (root / "braindecoding/data/build.py").read_text(encoding="utf-8")
     assert "tasks/word_decoding" not in source
     assert "best.pt" not in source
     assert "last.pt" not in source

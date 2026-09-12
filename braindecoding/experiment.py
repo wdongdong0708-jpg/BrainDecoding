@@ -234,8 +234,9 @@ def file_sha256(path):
 
 
 def _git_commit(project_root=PROJECT_ROOT):
+    safe_root = str(Path(project_root).resolve())
     result = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
+        ["git", "-c", f"safe.directory={safe_root}", "rev-parse", "HEAD"],
         cwd=project_root,
         capture_output=True,
         text=True,
@@ -246,8 +247,16 @@ def _git_commit(project_root=PROJECT_ROOT):
 
 def git_tracked_dirty(project_root=PROJECT_ROOT):
     """只检查已跟踪文件的 staged/unstaged 修改，忽略本地未跟踪资产。"""
+    safe_root = str(Path(project_root).resolve())
     result = subprocess.run(
-        ["git", "status", "--porcelain=v1", "--untracked-files=no"],
+        [
+            "git",
+            "-c",
+            f"safe.directory={safe_root}",
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=no",
+        ],
         cwd=project_root,
         capture_output=True,
         text=True,

@@ -6,16 +6,17 @@ from pathlib import Path
 import pytest
 
 from braindecoding.config import load_yaml_with_extends
+from braindecoding.catalog import discover_experiment_configs
+from braindecoding.data.derived import stable_sha256
 from braindecoding.experiment import resolve_experiment_config, scientific_config_sha256
-from experiments.generate_cleanup_manifest import (
-    ACTIVE_CONFIGS,
-    CACHE_ROOTS,
-    SCIENTIFIC_CONFIG_SHA256,
-    _manifest_sha256,
-)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+REMOVED_CACHE_ROOTS = (
+    "tasks/word_decoding/ChineseEEG2_LittlePrince/cache",
+    "tasks/word_decoding/SMN4Lang/cache",
+    "tasks/word_decoding/LibriBrain100/cache",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -30,7 +31,9 @@ def test_cleanup_manifest_is_the_validated_pre_delete_inventory():
     path = PROJECT_ROOT / "experiments/cleanup_manifest.json"
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["status"] == "dry_run_validated_before_cleanup"
-    assert payload["manifest_sha256"] == _manifest_sha256(payload)
+    digest_payload = dict(payload)
+    expected = digest_payload.pop("manifest_sha256")
+    assert expected == stable_sha256(digest_payload)
     assert payload["counts"] == {"archive": 218, "delete": 1866, "keep": 47}
     assert {item["action"] for item in payload["entries"]} == {
         "archive",
@@ -41,14 +44,20 @@ def test_cleanup_manifest_is_the_validated_pre_delete_inventory():
 
 
 def test_only_six_active_word_configs_remain_scientifically_locked():
+    cleanup = json.loads(
+        (PROJECT_ROOT / "experiments/cleanup_manifest.json").read_text(encoding="utf-8")
+    )
+    expected_by_config = {
+        item["config"]: item["scientific_config_sha256_before"]
+        for item in cleanup["active_configs"].values()
+    }
     runnable = []
-    for relative_path in ACTIVE_CONFIGS.values():
-        path = PROJECT_ROOT / relative_path
+    for record in discover_experiment_configs():
+        relative_path = record["relative_config"]
+        path = record["config_path"]
         config = resolve_experiment_config(load_yaml_with_extends(path))
         runnable.append(path)
-        assert scientific_config_sha256(config) == SCIENTIFIC_CONFIG_SHA256[
-            next(name for name, value in ACTIVE_CONFIGS.items() if value == relative_path)
-        ]
+        assert scientific_config_sha256(config) == expected_by_config[relative_path]
         assert config["cache"]
         assert all(
             str(value).replace("\\", "/").startswith("derived/")
@@ -62,8 +71,8 @@ def test_only_six_active_word_configs_remain_scientifically_locked():
 
 
 def test_active_configs_do_not_extend_legacy_or_reference_task_cache():
-    for relative_path in ACTIVE_CONFIGS.values():
-        path = PROJECT_ROOT / relative_path
+    for record in discover_experiment_configs():
+        path = record["config_path"]
         text = path.read_text(encoding="utf-8").replace("\\", "/")
         assert "extends: ../base.yaml" in text
         assert "tasks/word_decoding" not in text
@@ -81,7 +90,7 @@ def test_canonical_replacements_are_complete_before_legacy_caches_disappear():
         item["status"] == "complete"
         for item in cleanup["derived_replacements"].values()
     )
-    for relative_path in CACHE_ROOTS:
+    for relative_path in REMOVED_CACHE_ROOTS:
         assert not (PROJECT_ROOT / relative_path).exists()
 
 

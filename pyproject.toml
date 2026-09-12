@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "braindecoding"
+version = "0.1.0"
+description = "可复现的 EEG/MEG 语言解码数据与实验工具"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "h5py",
+  "mne",
+  "numpy",
+  "openpyxl",
+  "pandas",
+  "PyYAML",
+  "scikit-learn",
+  "scipy",
+  "torch",
+  "transformers",
+]
+
+[project.optional-dependencies]
+ovmi = [
+  "ovmi @ git+https://github.com/neural-processing-lab/OVMI.git@5d3ef28245279ebc0165a0d19681cb9c563d535a",
+]
+
+[project.scripts]
+brain-decoding = "braindecoding.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["braindecoding*"]

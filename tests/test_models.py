@@ -3,7 +3,7 @@ import math
 import numpy as np
 import torch
 
-from models import (
+from braindecoding.models import (
     BrainEmbeddingModel,
     SpatialChannelMerger,
     SubjectLinear,

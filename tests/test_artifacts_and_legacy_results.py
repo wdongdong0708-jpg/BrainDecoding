@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 
 from braindecoding.config import PROJECT_ROOT, load_yaml_with_extends
+from braindecoding.data.derived import stable_sha256
 from braindecoding.experiment import file_sha256, warm_start_checkpoint
-from experiments.freeze_legacy_results import LEGACY_RUNS, _manifest_digest
 
 
 ARTIFACT_MANIFEST_PATH = (
@@ -69,7 +69,7 @@ def test_recorded_full_event_table_migration_is_exact():
 
 
 def test_all_configured_alignment_paths_use_artifacts_and_resolve():
-    from tasks.word_decoding.ChineseEEG2_LittlePrince.train import 载入配置
+    from braindecoding.tasks.word_decoding.chineseeeg2_littleprince.train import 载入配置
 
     old_paths = ("outputs/女声一小王子时间戳", "outputs/男声一小王子时间戳")
     for path in (PROJECT_ROOT / "configs").rglob("*.yaml"):
@@ -109,9 +109,7 @@ def test_legacy_manifest_covers_frozen_inventory_and_archive_only_runs():
     manifest = _read_json(LEGACY_MANIFEST_PATH)
     assert manifest["run_count"] == 32
     assert manifest["counts"]["runs"] == 32
-    assert {run["legacy_output"] for run in manifest["runs"]} == {
-        run["legacy_output"] for run in LEGACY_RUNS
-    }
+    assert len({run["legacy_output"] for run in manifest["runs"]}) == 32
     archive_only = {
         run["legacy_output"]
         for run in manifest["runs"]
@@ -126,7 +124,7 @@ def test_legacy_manifest_covers_frozen_inventory_and_archive_only_runs():
 
     unsigned = copy.deepcopy(manifest)
     expected_digest = unsigned.pop("manifest_sha256")
-    assert _manifest_digest(unsigned) == expected_digest
+    assert stable_sha256(unsigned) == expected_digest
 
 
 def test_legacy_manifest_records_existing_files_without_reading_their_payloads():

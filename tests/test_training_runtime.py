@@ -11,9 +11,11 @@ from torch import nn
 from torch.utils.data import Dataset
 
 from braindecoding.training import runtime, word
-from tasks.word_decoding.ChineseEEG2_LittlePrince import train as chineseeeg2_training
-from tasks.word_decoding.LibriBrain100 import train as legacy_training
-from tasks.word_decoding.SMN4Lang import train as smn4lang_training
+from braindecoding.tasks.word_decoding.chineseeeg2_littleprince import (
+    train as chineseeeg2_training,
+)
+from braindecoding.tasks.word_decoding.libribrain100 import train as legacy_training
+from braindecoding.tasks.word_decoding.smn4lang import train as smn4lang_training
 
 
 class _TinyWordDataset(Dataset):
@@ -244,10 +246,11 @@ def test_other_datasets_do_not_import_libribrain_training_as_a_library():
     """静态锁定数据集训练入口之间不存在反向依赖。"""
     project_root = Path(__file__).resolve().parents[1]
     paths = (
-        project_root / "tasks/word_decoding/SMN4Lang/train.py",
-        project_root / "tasks/word_decoding/ChineseEEG2_LittlePrince/train.py",
+        project_root / "braindecoding/tasks/word_decoding/smn4lang/train.py",
+        project_root
+        / "braindecoding/tasks/word_decoding/chineseeeg2_littleprince/train.py",
     )
-    forbidden = "tasks.word_decoding.LibriBrain100.train"
+    forbidden = "braindecoding.tasks.word_decoding.libribrain100.train"
     for path in paths:
         tree = ast.parse(path.read_text(encoding="utf-8"))
         imported_modules = {

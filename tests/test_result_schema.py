@@ -32,7 +32,7 @@ from braindecoding.results import (
     write_evaluation_result,
 )
 import braindecoding.results as result_schema
-from experiments.compare_legacy_run import compare_legacy_run
+from scripts.maintenance.compare_legacy_run import compare_legacy_run
 
 
 def _config(dataset="fixture", budget="updates", output_dir=None):
@@ -122,9 +122,9 @@ def test_evaluation_schema_is_identical_for_three_word_datasets():
 
 def test_three_evaluators_share_the_same_canonical_serializer():
     modules = (
-        "tasks.word_decoding.ChineseEEG2_LittlePrince.evaluate",
-        "tasks.word_decoding.SMN4Lang.evaluate",
-        "tasks.word_decoding.LibriBrain100.evaluate",
+        "braindecoding.tasks.word_decoding.chineseeeg2_littleprince.evaluate",
+        "braindecoding.tasks.word_decoding.smn4lang.evaluate",
+        "braindecoding.tasks.word_decoding.libribrain100.evaluate",
     )
     for module_name in modules:
         module = importlib.import_module(module_name)
@@ -136,9 +136,9 @@ def test_three_evaluators_share_the_same_canonical_serializer():
 
 def test_three_trainers_share_the_same_canonical_training_summary_builder():
     modules = (
-        "tasks.word_decoding.ChineseEEG2_LittlePrince.train",
-        "tasks.word_decoding.SMN4Lang.train",
-        "tasks.word_decoding.LibriBrain100.train",
+        "braindecoding.tasks.word_decoding.chineseeeg2_littleprince.train",
+        "braindecoding.tasks.word_decoding.smn4lang.train",
+        "braindecoding.tasks.word_decoding.libribrain100.train",
     )
     for module_name in modules:
         module = importlib.import_module(module_name)
