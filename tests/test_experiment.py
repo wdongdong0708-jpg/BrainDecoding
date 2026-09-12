@@ -37,7 +37,7 @@ CANONICAL_FILES = (
     "sequence_decoding/chineseeeg1_sr/sub04-10_sub13-14/historical_closed_set_loso.yaml",
 )
 ACTIVE_SCIENTIFIC_SHA256 = {
-    "word_decoding/chineseeeg2_littleprince/sub01-08/main_word.yaml": "3117f60305b0aa6de8dd930e896ab9fa3ab26829acbab28a3cdb89e9f863573e",
+    "word_decoding/chineseeeg2_littleprince/sub01-08/main_word.yaml": "480ac719eb6b3a143a84ebaff5b9163e578bcc0e22142d90b894a01b4f60ec4b",
     "word_decoding/chineseeeg2_littleprince/sub01-08/main_context.yaml": "3951b8a5d1936265da3d506ada1e74aeb5e2a34ae4466a4cb6fbdf70150d6387",
     "word_decoding/smn4lang/sub01-06/main_word.yaml": "40fba01a86059b0b1299498b0bbff50aca2b8b0080995936604afbf84103ca1a",
     "word_decoding/smn4lang/sub01-06/main_context.yaml": "91cb836820b6d1e49077396f19eea013f703c20e2ee0b68d62f5501b3677a9d2",

@@ -17,8 +17,8 @@
         "derived/chineseeeg2_littleprince/text/mengzi_t5_layer_0_5/embeddings.npz"
       ],
       "config": "configs/word_decoding/chineseeeg2_littleprince/sub01-08/main_word.yaml",
-      "scientific_config_sha256_after": "3117f60305b0aa6de8dd930e896ab9fa3ab26829acbab28a3cdb89e9f863573e",
-      "scientific_config_sha256_before": "3117f60305b0aa6de8dd930e896ab9fa3ab26829acbab28a3cdb89e9f863573e"
+      "scientific_config_sha256_after": "480ac719eb6b3a143a84ebaff5b9163e578bcc0e22142d90b894a01b4f60ec4b",
+      "scientific_config_sha256_before": "480ac719eb6b3a143a84ebaff5b9163e578bcc0e22142d90b894a01b4f60ec4b"
     },
     "libribrain100_main_context": {
       "cache_paths": [
@@ -22078,7 +22078,7 @@
     "path": "experiments/legacy_results_manifest.json",
     "run_count": 32
   },
-  "manifest_sha256": "199a957970d3e2e159117e9fd68e0ae01792a57532ef27b13d18a62e79c12e92",
+  "manifest_sha256": "392e3bdeaff62070a2f2386220a053f3569d565e79492680c0ff6691478241a3",
   "schema_version": 1,
   "status": "dry_run_validated_before_cleanup"
 }

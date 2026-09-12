@@ -408,13 +408,14 @@ def test_actual_reading配置保持单一八人数据合同(monkeypatch):
 
     assert word["model"]["use_transformer"] is False
     assert context["model"]["use_transformer"] is True
-    assert context["dataset"]["context_grouping"] == "bounded_semantic_v1"
-    assert context["dataset"]["semantic_context"] == {
-        "actual_reading_line_sheet_name": "逐行对照",
-        "preferred_words": 16,
-        "maximum_words": 32,
-        "maximum_seconds": 15.0,
-    }
+    for config in (word, context):
+        assert config["dataset"]["context_grouping"] == "bounded_semantic_v1"
+        assert config["dataset"]["semantic_context"] == {
+            "actual_reading_line_sheet_name": "逐行对照",
+            "preferred_words": 16,
+            "maximum_words": 32,
+            "maximum_seconds": 15.0,
+        }
     assert context["training"]["freeze_brain_encoder_updates"] == 649
     assert context["training"]["warm_start_from"] == "main_word"
     for section in ("text_embedding", "loss", "evaluation"):

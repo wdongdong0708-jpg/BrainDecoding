@@ -37,7 +37,12 @@ dataset:
   scaler: RobustScaler
   clamp: 5.0
   materialization_channel_chunk: 32
-  context_grouping: actual_reading_row_then_contiguous_chunks
+  context_grouping: bounded_semantic_v1 # 上下文分组
+  semantic_context:
+    actual_reading_line_sheet_name: 逐行对照
+    preferred_words: 16
+    maximum_words: 32
+    maximum_seconds: 15.0
   max_context_words: 128
   expected_trainable_counts:
     train: 81620
