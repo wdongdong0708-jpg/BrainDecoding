@@ -33,3 +33,4 @@ paper/manuscript/*.fls
 paper/manuscript/*.fdb_latexmk
 paper/manuscript/*.synctex.gz
 paper/manuscript/main.pdf
+paper/notes
