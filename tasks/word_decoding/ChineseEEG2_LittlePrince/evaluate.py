@@ -21,6 +21,12 @@ except ImportError:
 
 from braindecoding.data import chineseeeg2 as dataset_module
 from braindecoding.experiment import evaluation_output_path
+from braindecoding.results import (
+    canonical_evaluation_from_legacy,
+    evaluate_vocabulary_manifests,
+    load_vocabulary_assets,
+    write_evaluation_result,
+)
 from models import build_brain_embedding_model
 from braindecoding.evaluation.ovmi import fixed_vocabulary_ovmi_metrics
 
@@ -78,7 +84,9 @@ def 评估检查点(
     training.set_seed(int(config["training"]["seed"]))
     device = training.choose_device(config["training"].get("device", "auto"))
     event_path = training.确保事件表(config)
-    table = dataset_module.载入事件表(event_path, split=split)
+    table = dataset_module.载入事件表(
+        event_path, split=split, subjects=config["dataset"].get("subjects")
+    )
     if smoke:
         table = training.limit_rows(
             table, int(config["training"].get("smoke_rows", 64))
@@ -141,9 +149,32 @@ def 评估检查点(
         summary["controls"]["zero_eeg"] = zero_metrics
 
     if save:
-        training.save_json(
-            evaluation_output_path(config, split, smoke=smoke), summary
-        )
+        if "experiment" in config:
+            vocabulary_manifests, story_reference = load_vocabulary_assets(
+                PROJECT_ROOT / "experiments" / "manifests" / "chineseeeg2"
+            )
+            vocabulary_results = evaluate_vocabulary_manifests(
+                encoded["predictions"],
+                encoded["targets"],
+                encoded["words"],
+                vocabulary_manifests,
+                story_reference,
+                language="zh",
+            )
+            canonical = canonical_evaluation_from_legacy(
+                config,
+                summary,
+                event_table_path=event_path,
+                subjects=table["subject_id"].astype(str).drop_duplicates().tolist(),
+                checkpoint_path=checkpoint_path,
+                checkpoint=checkpoint,
+                vocabulary_results=vocabulary_results,
+            )
+            write_evaluation_result(config, canonical, smoke=smoke)
+        else:
+            training.save_json(
+                evaluation_output_path(config, split, smoke=smoke), summary
+            )
     return summary
 
 

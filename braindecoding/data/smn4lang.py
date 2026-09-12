@@ -13,6 +13,7 @@ import json
 import math
 import os
 import re
+import time
 from collections import Counter
 from functools import lru_cache
 from pathlib import Path
@@ -23,13 +24,81 @@ import torch
 from scipy.io import loadmat
 from torch.utils.data import Dataset
 
+from braindecoding.config import PROJECT_ROOT
 from braindecoding.data.sensors import vectorview_channel_positions
+from braindecoding.data.derived import (
+    canonical_event_table as _canonical_event_table,
+    restore_legacy_columns,
+    signal_cache_directory,
+)
 from braindecoding.data.text import (
     ensure_text_embedding_cache,
     load_text_embedding_cache,
     text_embedding_signature,
 )
 from braindecoding.events import add_core_event_columns
+
+
+CANONICAL_AUXILIARY_COLUMNS = {
+    "dataset": "数据集",
+    "task": "任务",
+    "run": "运行编号",
+    "sentence_index": "句子序号",
+    "word_index": "原始词序号",
+    "word_duration_seconds": "词持续时间",
+    "word_id": "词类型编号",
+    "source_sampling_rate_hz": "源采样率Hz",
+    "source_sample_count": "源采样点数",
+    "recording_duration_seconds": "记录时长秒",
+    "support_start_seconds": "有效记录开始时间",
+    "support_stop_seconds": "有效记录结束时间",
+    "window_start_seconds": "窗口开始时间",
+    "window_stop_seconds": "窗口结束时间",
+    "eligibility_window_stop_seconds": "资格窗口结束时间",
+    "window_start_source_sample": "窗口开始源采样点",
+    "window_stop_source_sample": "窗口结束源采样点",
+    "window_start_target_sample": "窗口开始目标采样点",
+    "window_stop_target_sample": "窗口结束目标采样点",
+    "target_sampling_rate_hz": "目标采样率Hz",
+    "target_sample_count": "目标采样点数",
+    "fif_relpath": "FIF相对路径",
+    "events_relpath": "事件注释相对路径",
+    "alignment_relpath": "词对齐相对路径",
+    "script_relpath": "故事脚本相对路径",
+    "in_smn4lang50": "属于SMN4Lang前50词表",
+    "vocabulary_rank": "候选词频排名",
+    "window_complete": "窗口完整",
+    "source_sentence_uid": "原始上下文编号",
+    "context_chunk_index": "上下文分块序号",
+    "context_grouping": "上下文定义",
+    "script_character_mismatch_count": "脚本字符差异数",
+    "timing_status": "时间状态",
+    "timing_source_clock": "时间来源时钟",
+    "timing_fmri_offset_removed_seconds": "已移除fMRI偏移秒",
+    "timing_meg_audio_delay_added_seconds": "已加入MEG音频延迟秒",
+}
+
+SIGNAL_MATERIALIZATION_VERSION = 2
+
+_CANONICAL_REDUNDANT_COLUMNS = {"onset_seconds"}
+
+
+def canonical_event_table(event_table: pd.DataFrame) -> pd.DataFrame:
+    """生成 SMN4Lang 中文优先的 canonical 磁盘事件表。"""
+    return _canonical_event_table(
+        event_table,
+        CANONICAL_AUXILIARY_COLUMNS,
+        redundant_columns=_CANONICAL_REDUNDANT_COLUMNS,
+    )
+
+
+def restore_event_table_columns(event_table: pd.DataFrame) -> pd.DataFrame:
+    """在内存中恢复旧训练消费者使用的英文列。"""
+    return restore_legacy_columns(
+        event_table,
+        CANONICAL_AUXILIARY_COLUMNS,
+        derived_aliases={"onset_seconds": "开始时间"},
+    )
 
 
 FMRI_ALIGNMENT_OFFSET_SECONDS = 10.65
@@ -923,8 +992,8 @@ def save_event_table(event_table, path, audit=None) -> Path:
     return path
 
 
-def load_event_table(path, split=None, trainable_only=True) -> pd.DataFrame:
-    table = pd.read_csv(path)
+def load_event_table(path, split=None, trainable_only=True, subjects=None) -> pd.DataFrame:
+    table = restore_event_table_columns(pd.read_csv(path, low_memory=False))
     required = {
         "split",
         "normalized_word",
@@ -941,6 +1010,9 @@ def load_event_table(path, split=None, trainable_only=True) -> pd.DataFrame:
         raise ValueError(f"Cached event table is missing columns {missing}.")
     if trainable_only:
         table = table[table["is_trainable"].map(_parse_bool)]
+    if subjects is not None:
+        subject_set = {str(value) for value in subjects}
+        table = table[table["subject_id"].astype(str).isin(subject_set)]
     if split is not None:
         table = table[table["split"].eq(split)]
     if table.empty:
@@ -955,9 +1027,11 @@ def _preprocessing_signature(config, source_path) -> dict:
     stat = source_path.stat()
     schema = inspect_recording_schema(source_path)
     return {
+        "materialization_version": SIGNAL_MATERIALIZATION_VERSION,
         "source_path": str(source_path.resolve()),
         "source_size": int(stat.st_size),
         "source_mtime_ns": int(stat.st_mtime_ns),
+        "source_sample_count": int(schema["sample_count"]),
         "source_sampling_rate_hz": float(config["source_sampling_rate_hz"]),
         "target_sampling_rate_hz": float(config["target_sampling_rate_hz"]),
         "filter_low_hz": config.get("filter_low_hz"),
@@ -973,9 +1047,22 @@ def _signature_digest(signature) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
 
 
+def _file_sha256(path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def processed_recording_path(source_path, config, cache_dir) -> Path:
     signature = _preprocessing_signature(config, source_path)
-    return Path(cache_dir) / f"{Path(source_path).stem}_{_signature_digest(signature)}.npy"
+    directory = signal_cache_directory(
+        cache_dir,
+        source_path,
+        by_subject=bool(config.get("signal_cache_subject_subdirectories", False)),
+    )
+    return directory / f"{Path(source_path).stem}_{_signature_digest(signature)}.npy"
 
 
 def _valid_recording_cache(cache_path, signature) -> bool:
@@ -988,15 +1075,33 @@ def _valid_recording_cache(cache_path, signature) -> bool:
         if metadata.get("signature") != signature:
             return False
         array = np.load(cache_path, mmap_mode="r")
+        source_rate = float(signature["source_sampling_rate_hz"])
+        target_rate = float(signature["target_sampling_rate_hz"])
+        expected_samples = int(
+            math.ceil(int(signature["source_sample_count"]) * target_rate / source_rate)
+        )
+        expected_shape = (len(signature["channel_names"]), expected_samples)
         return (
-            array.shape == tuple(metadata["shape"])
+            array.shape == tuple(metadata["shape"]) == expected_shape
             and array.dtype == np.float32
+            and metadata.get("dtype") == "float32"
+            and metadata.get("output_sha256") == _file_sha256(cache_path)
         )
     except (OSError, ValueError, KeyError, json.JSONDecodeError):
         return False
 
 
 def _read_raw_fif(path):
+    # MNE 导入会让 Numba 为兼容函数建立缓存。不要尝试写入只读的环境目录，
+    # 否则 tempfile 会在 Windows 上长时间重试；该位置只影响启动 I/O。
+    numba_cache = Path(
+        os.environ.get(
+            "BRAINDECODING_NUMBA_CACHE",
+            PROJECT_ROOT / "derived" / ".numba_cache",
+        )
+    )
+    numba_cache.mkdir(parents=True, exist_ok=True)
+    os.environ.setdefault("NUMBA_CACHE_DIR", str(numba_cache))
     import mne
 
     return mne.io.read_raw_fif(str(path), preload=False, verbose="ERROR")
@@ -1020,19 +1125,195 @@ def _scale_channels(data, scaler):
     return data
 
 
-def materialize_recording_cache(source_path, config, cache_dir, force=False) -> Path:
-    """读取一段 FIF 记录，并按需滤波、降采样和缩放。"""
+def _add_elapsed(timings, key, started):
+    if timings is not None:
+        timings[key] = timings.get(key, 0.0) + (time.perf_counter() - started)
+
+
+def _processing_parameters(config, source_rate):
     from scipy import signal
 
+    target_rate = float(config["target_sampling_rate_hz"])
+    divisor = math.gcd(round(source_rate), round(target_rate))
+    up = round(target_rate) // divisor
+    down = round(source_rate) // divisor
+    low = config.get("filter_low_hz")
+    high = config.get("filter_high_hz")
+    sos = None
+    if low is not None or high is not None:
+        if low is None:
+            cutoff, kind = float(high), "lowpass"
+        elif high is None:
+            cutoff, kind = float(low), "highpass"
+        else:
+            cutoff, kind = (float(low), float(high)), "bandpass"
+        sos = signal.butter(
+            int(config.get("filter_order", 4)),
+            cutoff,
+            btype=kind,
+            fs=source_rate,
+            output="sos",
+        ).astype(np.float32)
+    return target_rate, up, down, sos
+
+
+def _process_channel_block(
+    data,
+    *,
+    source_rate,
+    target_rate,
+    up,
+    down,
+    sos,
+    scaler,
+    timings,
+):
+    from scipy import signal
+
+    if sos is not None:
+        started = time.perf_counter()
+        data = signal.sosfiltfilt(sos, data, axis=1).astype(
+            np.float32, copy=False
+        )
+        _add_elapsed(timings, "preprocessing_seconds", started)
+    if not math.isclose(source_rate, target_rate):
+        started = time.perf_counter()
+        data = signal.resample_poly(data, up, down, axis=1).astype(
+            np.float32, copy=False
+        )
+        _add_elapsed(timings, "resampling_seconds", started)
+    started = time.perf_counter()
+    data = _scale_channels(data, scaler)
+    _add_elapsed(timings, "preprocessing_seconds", started)
+    return data
+
+
+def _reference_recording_array(raw, channel_names, config, timings):
+    """保留旧逐通道块读取路径，作为数值 reference。"""
+    source_rate = float(raw.info["sfreq"])
+    target_rate, up, down, sos = _processing_parameters(config, source_rate)
+    chunk_size = int(config.get("materialization_channel_chunk", 24))
+    scaler = str(config.get("scaler", "RobustScaler"))
+    chunks = []
+    for start in range(0, len(channel_names), chunk_size):
+        names = channel_names[start : start + chunk_size]
+        started = time.perf_counter()
+        values = raw.get_data(picks=list(names))
+        _add_elapsed(timings, "channel_read_seconds", started)
+        started = time.perf_counter()
+        data = values.astype(np.float32)
+        _add_elapsed(timings, "float32_conversion_seconds", started)
+        chunks.append(
+            _process_channel_block(
+                data,
+                source_rate=source_rate,
+                target_rate=target_rate,
+                up=up,
+                down=down,
+                sos=sos,
+                scaler=scaler,
+                timings=timings,
+            )
+        )
+    started = time.perf_counter()
+    output = np.concatenate(chunks, axis=0).astype(np.float32, copy=False)
+    _add_elapsed(timings, "preprocessing_seconds", started)
+    return output
+
+
+def _optimized_recording_array(
+    raw, channel_names, config, staging_path, timings
+):
+    """单次顺序读取 FIF，数学预处理继续复用 reference 路径的分块函数。"""
+    source_rate = float(raw.info["sfreq"])
+    target_rate, up, down, sos = _processing_parameters(config, source_rate)
+    channel_chunk = int(config.get("materialization_channel_chunk", 24))
+    sample_chunk = int(config.get("materialization_sample_chunk", 50_000))
+    if channel_chunk <= 0 or sample_chunk <= 0:
+        raise ValueError("信号物化分块大小必须为正整数。")
+    scaler = str(config.get("scaler", "RobustScaler"))
+    staging_path = Path(staging_path)
+    staging = np.memmap(
+        staging_path,
+        mode="w+",
+        dtype=np.float32,
+        shape=(len(channel_names), int(raw.n_times)),
+    )
+    try:
+        for start in range(0, int(raw.n_times), sample_chunk):
+            stop = min(start + sample_chunk, int(raw.n_times))
+            started = time.perf_counter()
+            values = raw.get_data(
+                picks=list(channel_names), start=start, stop=stop
+            )
+            _add_elapsed(timings, "channel_read_seconds", started)
+            started = time.perf_counter()
+            converted = values.astype(np.float32)
+            _add_elapsed(timings, "float32_conversion_seconds", started)
+            started = time.perf_counter()
+            staging[:, start:stop] = converted
+            _add_elapsed(timings, "staging_write_seconds", started)
+        staging.flush()
+
+        chunks = []
+        for start in range(0, len(channel_names), channel_chunk):
+            started = time.perf_counter()
+            data = np.array(
+                staging[start : start + channel_chunk],
+                dtype=np.float32,
+                copy=True,
+            )
+            _add_elapsed(timings, "staging_read_seconds", started)
+            chunks.append(
+                _process_channel_block(
+                    data,
+                    source_rate=source_rate,
+                    target_rate=target_rate,
+                    up=up,
+                    down=down,
+                    sos=sos,
+                    scaler=scaler,
+                    timings=timings,
+                )
+            )
+        started = time.perf_counter()
+        output = np.concatenate(chunks, axis=0).astype(np.float32, copy=False)
+        _add_elapsed(timings, "preprocessing_seconds", started)
+        return output
+    finally:
+        mmap = getattr(staging, "_mmap", None)
+        if mmap is not None:
+            mmap.close()
+        del staging
+        staging_path.unlink(missing_ok=True)
+
+
+def materialize_recording_cache(
+    source_path,
+    config,
+    cache_dir,
+    force=False,
+    *,
+    io_strategy="optimized",
+    timings=None,
+) -> Path:
+    """读取一段 FIF 记录，并按需滤波、降采样和缩放。"""
+    total_started = time.perf_counter()
     source_path = Path(source_path)
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
     signature = _preprocessing_signature(config, source_path)
     cache_path = processed_recording_path(source_path, config, cache_dir)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
     if not force and _valid_recording_cache(cache_path, signature):
+        if timings is not None:
+            timings["status"] = "reused"
+            timings["total_seconds"] = time.perf_counter() - total_started
         return cache_path
 
+    started = time.perf_counter()
     raw = _read_raw_fif(source_path)
+    _add_elapsed(timings, "open_fif_seconds", started)
     try:
         source_rate = float(raw.info["sfreq"])
         expected_rate = float(config["source_sampling_rate_hz"])
@@ -1044,66 +1325,52 @@ def materialize_recording_cache(source_path, config, cache_dir, force=False) -> 
         missing = sorted(set(channel_names) - set(raw.ch_names))
         if missing:
             raise ValueError(f"FIF is missing configured channels: {missing[:5]}")
-        target_rate = float(config["target_sampling_rate_hz"])
-        divisor = math.gcd(round(source_rate), round(target_rate))
-        up = round(target_rate) // divisor
-        down = round(source_rate) // divisor
-        low = config.get("filter_low_hz")
-        high = config.get("filter_high_hz")
-        sos = None
-        if low is not None or high is not None:
-            if low is None:
-                cutoff, kind = float(high), "lowpass"
-            elif high is None:
-                cutoff, kind = float(low), "highpass"
-            else:
-                cutoff, kind = (float(low), float(high)), "bandpass"
-            sos = signal.butter(
-                int(config.get("filter_order", 4)),
-                cutoff,
-                btype=kind,
-                fs=source_rate,
-                output="sos",
-            ).astype(np.float32)
-
-        chunks = []
-        chunk_size = int(config.get("materialization_channel_chunk", 24))
-        scaler = str(config.get("scaler", "RobustScaler"))
-        for start in range(0, len(channel_names), chunk_size):
-            names = channel_names[start : start + chunk_size]
-            data = raw.get_data(picks=list(names)).astype(np.float32)
-            if sos is not None:
-                data = signal.sosfiltfilt(sos, data, axis=1).astype(
-                    np.float32, copy=False
-                )
-            if not math.isclose(source_rate, target_rate):
-                data = signal.resample_poly(data, up, down, axis=1).astype(
-                    np.float32, copy=False
-                )
-            chunks.append(_scale_channels(data, scaler))
-        output = np.concatenate(chunks, axis=0).astype(np.float32, copy=False)
+        if io_strategy == "reference":
+            output = _reference_recording_array(raw, channel_names, config, timings)
+        elif io_strategy == "optimized":
+            staging_path = cache_path.with_suffix(".source_float32.tmp")
+            output = _optimized_recording_array(
+                raw, channel_names, config, staging_path, timings
+            )
+        else:
+            raise ValueError(f"未知 FIF I/O 策略：{io_strategy}")
     finally:
         raw.close()
     if not np.isfinite(output).all():
         raise RuntimeError(f"Non-finite values after preprocessing {source_path}.")
 
     temporary_path = cache_path.with_suffix(cache_path.suffix + ".tmp")
+    started = time.perf_counter()
     with temporary_path.open("wb") as file:
         np.save(file, output, allow_pickle=False)
     os.replace(temporary_path, cache_path)
-    cache_path.with_suffix(".json").write_text(
+    _add_elapsed(timings, "npy_write_seconds", started)
+    started = time.perf_counter()
+    output_sha256 = _file_sha256(cache_path)
+    _add_elapsed(timings, "npy_hash_seconds", started)
+    metadata_path = cache_path.with_suffix(".json")
+    temporary_metadata = metadata_path.with_suffix(".json.tmp")
+    started = time.perf_counter()
+    temporary_metadata.write_text(
         json.dumps(
             {
                 "status": "materialized",
                 "signature": signature,
                 "shape": list(output.shape),
                 "dtype": "float32",
+                "output_sha256": output_sha256,
             },
             ensure_ascii=False,
             indent=2,
         ),
         encoding="utf-8",
     )
+    os.replace(temporary_metadata, metadata_path)
+    _add_elapsed(timings, "sidecar_write_seconds", started)
+    if timings is not None:
+        timings["status"] = "materialized"
+        timings["io_strategy"] = io_strategy
+        timings["total_seconds"] = time.perf_counter() - total_started
     return cache_path
 
 

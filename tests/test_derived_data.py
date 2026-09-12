@@ -1,0 +1,431 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pandas as pd
+import pytest
+from pandas.testing import assert_frame_equal
+
+from braindecoding.config import load_yaml_with_extends
+from braindecoding.data import chineseeeg2, libribrain, smn4lang
+from braindecoding.data.derived import (
+    CORE_LEGACY_COLUMNS,
+    canonical_cache_paths,
+    canonical_event_table,
+    event_manifest_path,
+    restore_legacy_columns,
+    signal_cache_directory,
+    validate_event_product,
+    write_event_product,
+)
+from braindecoding.events import CORE_EVENT_COLUMNS
+from braindecoding.experiment import resolve_experiment_config
+from experiments import build_derived_data
+
+
+def _event_table():
+    table = pd.DataFrame(
+        {
+            "事件编号": ["e0", "e1"],
+            "受试者": ["sub-01", "sub-01"],
+            "记录编号": ["r0", "r0"],
+            "材料编号": ["m0", "m0"],
+            "划分单元": ["u0", "u0"],
+            "记录内序号": [0, 1],
+            "词": ["甲", "乙"],
+            "标准词": ["甲", "乙"],
+            "开始时间": [0.0, 2.0],
+            "结束时间": [0.5, 2.5],
+            "上下文编号": ["c0", "c0"],
+            "数据划分": ["train", "train"],
+            "是否可训练": [True, True],
+            "排除原因": ["", ""],
+            "event_id": ["e0", "e1"],
+            "subject_id": ["sub-01", "sub-01"],
+            "recording_id": ["r0", "r0"],
+            "word": ["甲", "乙"],
+            "normalized_word": ["甲", "乙"],
+            "sentence_uid": ["c0", "c0"],
+            "split": ["train", "train"],
+            "is_trainable": [True, True],
+            "exclusion_reason": ["", ""],
+            "run": [1, 1],
+        }
+    )
+    return table
+
+
+def test_canonical_event_table_is_chinese_first_without_core_duplicates():
+    source = _event_table()
+    result = canonical_event_table(source, {"run": "运行编号"})
+    assert tuple(result.columns[:14]) == CORE_EVENT_COLUMNS
+    assert not set(CORE_LEGACY_COLUMNS).intersection(result.columns)
+    assert list(result["事件编号"]) == list(source["event_id"])
+    assert list(result["数据划分"]) == list(source["split"])
+
+
+def test_legacy_columns_are_restored_in_memory_only():
+    canonical = canonical_event_table(_event_table(), {"run": "运行编号"})
+    restored = restore_legacy_columns(canonical, {"run": "运行编号"})
+    for legacy, chinese in CORE_LEGACY_COLUMNS.items():
+        assert restored[legacy].equals(restored[chinese])
+    assert restored["run"].tolist() == [1, 1]
+    assert "event_id" not in canonical
+
+
+def test_unmapped_persisted_column_is_rejected():
+    source = _event_table().assign(unknown_builder_value=1)
+    with pytest.raises(ValueError, match="未定义的持久化字段"):
+        canonical_event_table(source, {"run": "运行编号"})
+
+
+def test_event_manifest_and_hash_are_stable(tmp_path):
+    table = canonical_event_table(_event_table(), {"run": "运行编号"})
+    event_path = tmp_path / "events.csv"
+    kwargs = {
+        "dataset": "fixture",
+        "project_root": Path(__file__).resolve().parents[1],
+        "source_raw_roots": ["X:/raw"],
+        "artifact_dependencies": [],
+        "context_definition": {"grouping": "fixture"},
+        "window_contract": {"window_seconds": 1.0},
+        "source_contract": {"split": "frozen"},
+        "audit": {"test_brain_signal_opened": False},
+    }
+    _, manifest_path, first = write_event_product(
+        table, event_path, manifest_kwargs=kwargs
+    )
+    first_bytes = event_path.read_bytes()
+    _, _, second = write_event_product(table, event_path, manifest_kwargs=kwargs)
+    assert event_path.read_bytes() == first_bytes
+    assert first["event_table_sha256"] == second["event_table_sha256"]
+    assert first["manifest_sha256"] == second["manifest_sha256"]
+    assert validate_event_product(event_path, manifest_path) == second
+
+
+def test_scoped_event_table_gets_scoped_manifest_name(tmp_path):
+    path = tmp_path / "events_sub01-06.csv"
+    assert event_manifest_path(path) == tmp_path / "manifest_sub01-06.json"
+    assert event_manifest_path(tmp_path / "events.csv") == tmp_path / "manifest.json"
+
+
+def test_signal_cache_subject_directory_is_explicit():
+    path = signal_cache_directory(
+        "derived/example/signals/eeg_50hz",
+        "derivatives/preprocessed/sub-03/run.vhdr",
+        by_subject=True,
+    )
+    assert path.as_posix().endswith("eeg_50hz/sub-03")
+    with pytest.raises(ValueError, match="无法从源记录路径解析受试者"):
+        signal_cache_directory("derived/signals", "run.vhdr", by_subject=True)
+
+
+@pytest.mark.parametrize(
+    ("dataset", "expected_event"),
+    [
+        ("chineseeeg2_littleprince", "events/events.csv"),
+        ("smn4lang", "events/events_sub01-06.csv"),
+        ("libribrain100", "events/events.csv"),
+    ],
+)
+def test_canonical_cache_paths_never_use_task_local_cache(dataset, expected_event):
+    paths = canonical_cache_paths(dataset)
+    assert paths["event_table"].replace("\\", "/").endswith(expected_event)
+    assert all(str(value).startswith("derived/") for value in paths.values())
+    assert all("tasks/word_decoding" not in str(value) for value in paths.values())
+
+
+def test_all_canonical_word_configs_resolve_to_derived(monkeypatch):
+    monkeypatch.setenv("BRAINDATA_ROOT", "D:/dataset")
+    monkeypatch.setenv(
+        "BRAINDECODING_MODEL_ROOT", "D:/code/dascoli-word-decoding/models"
+    )
+    root = Path(__file__).resolve().parents[1]
+    paths = sorted((root / "configs/word_decoding").rglob("*.yaml"))
+    runnable = []
+    for path in paths:
+        config = load_yaml_with_extends(path)
+        if "experiment" not in config:
+            continue
+        runnable.append(path)
+        resolved = resolve_experiment_config(config)
+        assert all(
+            str(value).replace("\\", "/").startswith("derived/")
+            for value in resolved["cache"].values()
+        ), path
+    assert runnable
+
+
+def test_legacy_configs_keep_task_local_cache(monkeypatch):
+    monkeypatch.setenv("BRAINDATA_ROOT", "D:/dataset")
+    monkeypatch.setenv(
+        "BRAINDECODING_MODEL_ROOT", "D:/code/dascoli-word-decoding/models"
+    )
+    root = Path(__file__).resolve().parents[1]
+    config = load_yaml_with_extends(root / "configs/SMN4Lang_1s.yaml")
+    assert config["cache"]["event_table"].startswith("tasks/word_decoding/")
+
+
+def test_smn4lang_six_subject_main_configs_are_explicit(monkeypatch):
+    monkeypatch.setenv("BRAINDATA_ROOT", "D:/dataset")
+    monkeypatch.setenv(
+        "BRAINDECODING_MODEL_ROOT", "D:/code/dascoli-word-decoding/models"
+    )
+    root = Path(__file__).resolve().parents[1]
+    for name in ("main_word.yaml", "main_context.yaml"):
+        config = load_yaml_with_extends(
+            root / "configs/word_decoding/smn4lang/sub01-06" / name
+        )
+        assert config["dataset"]["subjects"] == [
+            f"sub-{index:02d}" for index in range(1, 7)
+        ]
+        assert config["experiment"]["subject_scope"] == "sub01-06"
+
+
+def test_build_entry_has_no_legacy_cache_fallback():
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "experiments/build_derived_data.py").read_text(encoding="utf-8")
+    assert "tasks/word_decoding" not in source
+    assert "best.pt" not in source
+    assert "last.pt" not in source
+
+
+def test_local_canonical_manifests_when_materialized():
+    root = Path(__file__).resolve().parents[1]
+    products = {
+        "chineseeeg2_littleprince": "events.csv",
+        "smn4lang": "events_sub01-06.csv",
+        "libribrain100": "events.csv",
+    }
+    for dataset, filename in products.items():
+        path = root / "derived" / dataset / "events" / filename
+        if not path.exists():
+            continue
+        columns = pd.read_csv(path, nrows=0).columns
+        assert tuple(columns[:14]) == CORE_EVENT_COLUMNS
+        assert not set(CORE_LEGACY_COLUMNS).intersection(columns)
+        manifest = validate_event_product(path)
+        assert manifest["dataset"] == dataset
+        assert manifest["event_count"] > 0
+
+
+def _require_local_products(*paths):
+    missing = [str(path) for path in paths if not Path(path).exists()]
+    if missing:
+        pytest.skip(f"本机尚未物化 integration 数据：{missing}")
+
+
+def test_local_chineseeeg2_event_product_matches_formal_eight_subject_cache():
+    root = Path(__file__).resolve().parents[1]
+    legacy_path = root / (
+        "tasks/word_decoding/ChineseEEG2_LittlePrince/cache/"
+        "ChineseEEG2_LittlePrince_sub01_sub08_actual_reading_1s_semantic_v1.csv"
+    )
+    canonical_path = root / "derived/chineseeeg2_littleprince/events/events.csv"
+    _require_local_products(legacy_path, canonical_path)
+    legacy = pd.read_csv(legacy_path, low_memory=False)
+    restored = chineseeeg2.载入事件表(canonical_path, trainable_only=False)
+    assert_frame_equal(
+        legacy.reset_index(drop=True),
+        restored.loc[:, legacy.columns].reset_index(drop=True),
+        check_dtype=False,
+        check_exact=True,
+    )
+
+
+def test_local_smn4lang_six_subject_product_preserves_sub01_and_material_text():
+    root = Path(__file__).resolve().parents[1]
+    legacy_path = root / (
+        "tasks/word_decoding/SMN4Lang/cache/"
+        "SMN4Lang_events_all_words_1s_fixed_3s_support.csv"
+    )
+    canonical_path = root / "derived/smn4lang/events/events_sub01-06.csv"
+    manifest_path = canonical_path.parent / "manifest_sub01-06.json"
+    _require_local_products(legacy_path, canonical_path, manifest_path)
+    legacy = pd.read_csv(legacy_path, low_memory=False)
+    restored = smn4lang.load_event_table(
+        canonical_path, trainable_only=False, subjects=["sub-01"]
+    )
+    assert_frame_equal(
+        legacy.reset_index(drop=True),
+        restored.loc[:, legacy.columns].reset_index(drop=True),
+        check_dtype=False,
+        check_exact=True,
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    completeness = manifest["audit"]["six_subject_raw_completeness"]
+    assert manifest["subjects"] == [f"sub-{index:02d}" for index in range(1, 7)]
+    assert set(completeness["recordings_by_subject"].values()) == {60}
+    assert completeness["channel_names_and_order_consistent"] is True
+    assert completeness["relative_word_timing_consistent_across_subjects"] is True
+    assert manifest["audit"]["material_text_consistency"][
+        "same_material_across_subjects"
+    ] is True
+
+
+def test_local_libribrain_event_product_is_exactly_rebuildable():
+    root = Path(__file__).resolve().parents[1]
+    legacy_path = root / (
+        "tasks/word_decoding/LibriBrain100/cache/"
+        "LibriBrain100_events_1s_fixed_3s_support.csv"
+    )
+    canonical_path = root / "derived/libribrain100/events/events.csv"
+    _require_local_products(legacy_path, canonical_path)
+    legacy = pd.read_csv(legacy_path, low_memory=False)
+    restored = libribrain.load_event_table(canonical_path, trainable_only=False)
+    assert_frame_equal(
+        legacy.reset_index(drop=True),
+        restored.loc[:, legacy.columns].reset_index(drop=True),
+        check_dtype=False,
+        check_exact=True,
+    )
+
+
+def test_derived_tree_contains_no_model_checkpoint():
+    root = Path(__file__).resolve().parents[1] / "derived"
+    if not root.exists():
+        return
+    assert not list(root.rglob("*.pt"))
+
+
+def test_incomplete_smn_signal_coverage_cannot_create_complete_manifest(
+    tmp_path, monkeypatch
+):
+    config = {
+        "cache": {
+            "meg_dir": str(tmp_path / "signals" / "meg_50hz"),
+        }
+    }
+    monkeypatch.setattr(
+        build_derived_data,
+        "_validate_signal_coverage",
+        lambda *args, **kwargs: {
+            "expected_recordings": 359,
+            "signal_products": 359,
+            "missing": 0,
+            "extra": 0,
+        },
+    )
+    with pytest.raises(ValueError, match="必须覆盖 360 条记录"):
+        build_derived_data._write_smn_signal_manifest(
+            config, pd.DataFrame(), [], tmp_path / "provenance.json"
+        )
+    assert not (tmp_path / "signals" / "manifest_sub01-06.json").exists()
+
+
+def test_dataset_manifest_validation_requires_complete_components(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(build_derived_data, "PROJECT_ROOT", tmp_path)
+    component_paths = []
+    for name in ("events", "signals", "text"):
+        path = tmp_path / f"{name}.json"
+        path.write_text(f'{{"component": "{name}"}}\n', encoding="utf-8")
+        component_paths.append((name, path))
+    payload = {
+        "schema_version": 1,
+        "dataset": "fixture",
+        "status": "complete",
+        "components": {
+            name: {
+                "status": "complete",
+                "manifest": path.name,
+                "sha256": build_derived_data.sha256_file(path),
+            }
+            for name, path in component_paths
+        },
+    }
+    payload["manifest_sha256"] = build_derived_data.stable_sha256(payload)
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+    )
+    assert build_derived_data.validate_dataset_manifest(manifest_path)[
+        "status"
+    ] == "complete"
+    payload["components"]["text"]["status"] = "incomplete"
+    payload["manifest_sha256"] = build_derived_data.stable_sha256(
+        {key: value for key, value in payload.items() if key != "manifest_sha256"}
+    )
+    manifest_path.write_text(
+        json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="组件未完成"):
+        build_derived_data.validate_dataset_manifest(manifest_path)
+
+
+def test_check_cli_is_read_only(monkeypatch, capsys):
+    checked = []
+    monkeypatch.setattr(
+        build_derived_data,
+        "check_dataset",
+        lambda dataset: checked.append(dataset)
+        or {"dataset": dataset, "status": "complete"},
+    )
+    monkeypatch.setattr(
+        build_derived_data,
+        "build_dataset",
+        lambda *args, **kwargs: pytest.fail("--check 不应进入构建路径"),
+    )
+    build_derived_data.main(["--dataset", "smn4lang", "--check"])
+    assert checked == ["smn4lang"]
+    assert '"status": "complete"' in capsys.readouterr().out
+
+
+def test_check_cli_rejects_build_flags():
+    with pytest.raises(SystemExit):
+        build_derived_data.main(
+            ["--dataset", "smn4lang", "--check", "--signals"]
+        )
+
+
+@pytest.mark.parametrize(
+    ("dataset", "expected_recordings", "expected_channels"),
+    [
+        ("chineseeeg2_littleprince", 216, 128),
+        ("smn4lang", 360, 306),
+        ("libribrain100", 12, 306),
+    ],
+)
+def test_local_complete_derived_dataset_passes_common_check(
+    dataset, expected_recordings, expected_channels, monkeypatch
+):
+    root = Path(__file__).resolve().parents[1]
+    _require_local_products(root / "derived" / dataset / "manifest.json")
+    monkeypatch.setenv("BRAINDATA_ROOT", "D:/dataset")
+    monkeypatch.setenv(
+        "BRAINDECODING_MODEL_ROOT", "D:/code/dascoli-word-decoding/models"
+    )
+    result = build_derived_data.check_dataset(dataset)
+    assert result["status"] == "complete"
+    assert result["signal_coverage"] == {
+        "expected_recordings": expected_recordings,
+        "signal_products": expected_recordings,
+        "missing": 0,
+        "extra": 0,
+        "channel_count": expected_channels,
+        "trainable_windows_in_range": True,
+    }
+    assert result["test_model_evaluation_performed"] is False
+
+
+def test_local_smn_text_stability_is_explicit_and_matches_canonical_cache():
+    root = Path(__file__).resolve().parents[1]
+    stability_path = root / "derived/smn4lang/provenance/text_stability.json"
+    text_manifest_path = root / "derived/smn4lang/provenance/text.json"
+    _require_local_products(stability_path, text_manifest_path)
+    stability = json.loads(stability_path.read_text(encoding="utf-8"))
+    text_manifest = json.loads(text_manifest_path.read_text(encoding="utf-8"))
+    assert stability["canonical_rebuild_stable"] is True
+    assert stability["rebuild_a_sha256"] == stability["rebuild_b_sha256"]
+    assert stability["different_element_count"] == 0
+    assert stability["legacy_bitwise_equal"] is False
+    assert stability["legacy_max_abs_error"] == 3.0517578125e-05
+    canonical = next(
+        record
+        for record in text_manifest["files"]
+        if record["path"].endswith("embeddings.npz")
+    )
+    assert canonical["sha256"] == stability["rebuild_a_sha256"]
+    assert text_manifest["stability"]["canonical_rebuild_stable"] is True

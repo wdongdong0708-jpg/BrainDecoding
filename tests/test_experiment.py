@@ -299,6 +299,7 @@ def test_run_assets_and_overwrite_guards(tmp_path):
     output_dir, manifest = initialize_run_directory(
         config,
         ["python", "train.py"],
+        allow_dirty=True,
         output_root=tmp_path,
         protocol_manifests=(protocol,),
         vocabulary_manifests=(vocabulary,),
@@ -322,9 +323,15 @@ def test_run_assets_and_overwrite_guards(tmp_path):
     )
 
     with pytest.raises(FileExistsError, match="显式 resume"):
-        initialize_run_directory(config, "python train.py", output_root=tmp_path)
+        initialize_run_directory(
+            config, "python train.py", allow_dirty=True, output_root=tmp_path
+        )
     initialize_run_directory(
-        config, "python train.py", resume=True, output_root=tmp_path
+        config,
+        "python train.py",
+        resume=True,
+        allow_dirty=True,
+        output_root=tmp_path,
     )
     update_run_status(output_dir, "completed")
     with pytest.raises(FileExistsError, match="已经完成"):
@@ -332,6 +339,7 @@ def test_run_assets_and_overwrite_guards(tmp_path):
             config,
             "python train.py",
             resume=True,
+            allow_dirty=True,
             output_root=tmp_path,
         )
 
@@ -341,15 +349,23 @@ def test_run_directory_rejects_missing_manifest_and_changed_config(tmp_path):
     output_dir = run_directory(config, output_root=tmp_path)
     output_dir.mkdir(parents=True)
     with pytest.raises(FileExistsError, match="缺少 run_manifest"):
-        initialize_run_directory(config, "train", output_root=tmp_path)
+        initialize_run_directory(
+            config, "train", allow_dirty=True, output_root=tmp_path
+        )
 
     other_root = tmp_path / "other"
-    initialize_run_directory(config, "train", output_root=other_root)
+    initialize_run_directory(
+        config, "train", allow_dirty=True, output_root=other_root
+    )
     changed = copy.deepcopy(config)
     changed["model"]["hidden"] = 8
     with pytest.raises(FileExistsError, match="配置 SHA 不同"):
         initialize_run_directory(
-            changed, "train", resume=True, output_root=other_root
+            changed,
+            "train",
+            resume=True,
+            allow_dirty=True,
+            output_root=other_root,
         )
 
 

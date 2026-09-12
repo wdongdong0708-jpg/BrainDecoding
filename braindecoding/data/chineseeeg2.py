@@ -21,7 +21,97 @@ from braindecoding.data.text import (
     normalize_word,
     text_embedding_signature,
 )
+from braindecoding.data.derived import (
+    canonical_event_table as _canonical_event_table,
+    restore_legacy_columns,
+    signal_cache_directory,
+)
 from braindecoding.events import add_core_event_columns
+
+
+CANONICAL_AUXILIARY_COLUMNS = {
+    "chapter": "章节",
+    "audio_file": "音频文件",
+    "material_line": "材料行号",
+    "text_start_position": "文本起始位置",
+    "text_stop_position": "文本结束位置",
+    "audio_start_seconds": "音频开始时间",
+    "audio_stop_seconds": "音频结束时间",
+    "timestamp_qc_prompt": "时间戳质检提示",
+    "timestamp_source": "时间戳来源",
+    "run": "运行编号",
+    "voice_version": "声音版本",
+    "speaker_gender": "朗读者性别",
+    "小说": "小说",
+    "word_index": "词序号",
+    "chapter_word_index": "章内词序号",
+    "source_word_id": "原始词编号",
+    "vhdr_relpath": "BrainVision头文件相对路径",
+    "recording_duration_seconds": "记录时长秒",
+    "source_sample_count": "源采样点数",
+    "aligned_start_source_sample": "对齐开始源采样点",
+    "aligned_stop_source_sample": "对齐结束源采样点",
+    "window_start_source_sample": "窗口开始源采样点",
+    "window_stop_source_sample": "窗口结束源采样点",
+    "eligibility_stop_source_sample": "资格窗口结束源采样点",
+    "window_start_target_sample": "窗口开始目标采样点",
+    "window_stop_target_sample": "窗口结束目标采样点",
+    "window_start_seconds": "窗口开始时间",
+    "window_stop_seconds": "窗口结束时间",
+    "source_sampling_rate_hz": "源采样率Hz",
+    "target_sampling_rate_hz": "目标采样率Hz",
+    "target_sample_count": "目标采样点数",
+    "window_complete": "窗口完整",
+    "alignment_status": "对齐状态",
+    "automatic_qc_pass": "自动质检通过",
+    "synchronization_status": "同步状态",
+    "mapping_status": "映射状态",
+    "text_verification_status": "文本核验状态",
+    "hardware_delay_corrected": "已修正硬件延迟",
+    "manual_excluded": "人工排除",
+    "manual_exclusion_reason": "人工排除原因",
+    "primary_inclusion": "主分析纳入",
+    "source_sentence_uid": "原始上下文编号",
+    "context_chunk_index": "上下文分块序号",
+    "context_grouping": "上下文定义",
+    "context_boundary_reason": "上下文边界原因",
+    "in_chineseeeg2_littleprince50": "属于小王子前50词表",
+    "vocabulary_rank": "候选词频排名",
+    "timing_status": "时间状态",
+    "timing_source_clock": "时间来源时钟",
+}
+
+_CANONICAL_REDUNDANT_COLUMNS = {
+    "aligned_start_seconds",
+    "aligned_stop_seconds",
+    "split_group_id",
+}
+
+
+def canonical_event_table(event_table: pd.DataFrame) -> pd.DataFrame:
+    """生成 ChineseEEG2 中文优先的 canonical 磁盘事件表。"""
+    return _canonical_event_table(
+        event_table,
+        CANONICAL_AUXILIARY_COLUMNS,
+        redundant_columns=_CANONICAL_REDUNDANT_COLUMNS,
+    )
+
+
+def restore_event_table_columns(event_table: pd.DataFrame) -> pd.DataFrame:
+    """在内存中恢复旧训练消费者使用的英文列。"""
+    result = restore_legacy_columns(
+        event_table,
+        CANONICAL_AUXILIARY_COLUMNS,
+        derived_aliases={
+            "aligned_start_seconds": "开始时间",
+            "aligned_stop_seconds": "结束时间",
+        },
+    )
+    if "split_group_id" not in result and "chapter" in result:
+        result["split_group_id"] = result["chapter"].map(
+            lambda chapter: f"chapter-{int(chapter):02d}"
+        )
+    return result
 
 
 记录名规则 = re.compile(
@@ -742,18 +832,25 @@ def 保存事件表(event_table, path, audit) -> Path:
 def 载入候选词(event_table_path) -> tuple[str, ...]:
     """从事件表审计文件读取冻结的训练集候选词。"""
     audit_path = Path(event_table_path).with_suffix(".audit.json")
-    if not audit_path.exists():
-        raise FileNotFoundError(f"事件表缺少审计文件：{audit_path}")
-    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    if audit_path.exists():
+        audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    else:
+        manifest_path = Path(event_table_path).parent / "manifest.json"
+        if not manifest_path.exists():
+            raise FileNotFoundError(
+                f"事件表缺少审计文件或 derived manifest：{event_table_path}"
+            )
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        audit = manifest.get("audit", {})
     vocabulary = tuple(str(value) for value in audit["evaluation_vocabulary"])
     if len(vocabulary) != len(set(vocabulary)):
         raise ValueError("冻结候选词包含重复项。")
     return vocabulary
 
 
-def 载入事件表(path, split=None, trainable_only=True) -> pd.DataFrame:
+def 载入事件表(path, split=None, trainable_only=True, subjects=None) -> pd.DataFrame:
     """载入事件表，并按需要筛选数据划分和有效事件。"""
-    table = pd.read_csv(path)
+    table = restore_event_table_columns(pd.read_csv(path, low_memory=False))
     required = {
         "split",
         "is_trainable",
@@ -769,6 +866,9 @@ def 载入事件表(path, split=None, trainable_only=True) -> pd.DataFrame:
         raise ValueError(f"事件表缺少字段：{missing}")
     if trainable_only:
         table = table[table["is_trainable"].map(解析布尔值)]
+    if subjects is not None:
+        subject_set = {str(value) for value in subjects}
+        table = table[table["subject_id"].astype(str).isin(subject_set)]
     if split is not None:
         if split not in {"train", "val", "test"}:
             raise ValueError(f"未知数据划分：{split}")
@@ -806,7 +906,12 @@ def _签名摘要(signature) -> str:
 def 处理后记录路径(source_path, config, cache_dir) -> Path:
     """按源文件和预处理合同生成不会冲突的缓存路径。"""
     signature = _预处理签名(config, source_path)
-    return Path(cache_dir) / f"{Path(source_path).stem}_{_签名摘要(signature)}.npy"
+    directory = signal_cache_directory(
+        cache_dir,
+        source_path,
+        by_subject=bool(config.get("signal_cache_subject_subdirectories", False)),
+    )
+    return directory / f"{Path(source_path).stem}_{_签名摘要(signature)}.npy"
 
 
 def _记录缓存有效(cache_path, signature) -> bool:
@@ -932,6 +1037,7 @@ def 物化记录缓存(source_path, config, cache_dir, force=False) -> Path:
     cache_dir.mkdir(parents=True, exist_ok=True)
     signature = _预处理签名(config, source_path)
     cache_path = 处理后记录路径(source_path, config, cache_dir)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
     if not force and _记录缓存有效(cache_path, signature):
         return cache_path
 

@@ -406,10 +406,11 @@ def test_recording_materialization_uses_selected_meg_channels(tmp_path, monkeypa
     class FakeRaw:
         info = {"sfreq": 100.0}
         ch_names = CHANNEL_NAMES
+        n_times = signal.shape[1]
 
-        def get_data(self, picks):
+        def get_data(self, picks, start=None, stop=None):
             indices = [self.ch_names.index(name) for name in picks]
-            return signal[indices]
+            return signal[indices, slice(start, stop)]
 
         def close(self):
             return None
@@ -425,6 +426,95 @@ def test_recording_materialization_uses_selected_meg_channels(tmp_path, monkeypa
     assert np.isfinite(data).all()
 
 
+def test_optimized_recording_materialization_is_bitwise_reference_equivalent(
+    tmp_path, monkeypatch
+):
+    root = tmp_path / "dataset"
+    fif_path = _make_recording_files(root)
+    random = np.random.default_rng(13)
+    signal = random.normal(size=(len(CHANNEL_NAMES), 2003)).astype("float64")
+
+    class FakeRaw:
+        info = {"sfreq": 100.0}
+        ch_names = CHANNEL_NAMES
+        n_times = signal.shape[1]
+
+        def get_data(self, picks, start=None, stop=None):
+            indices = [self.ch_names.index(name) for name in picks]
+            return signal[indices, slice(start, stop)]
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(dataset_module, "_read_raw_fif", lambda path: FakeRaw())
+    config = _dataset_config(root)
+    config["materialization_channel_chunk"] = 2
+    config["materialization_sample_chunk"] = 317
+    reference_timings = {}
+    optimized_timings = {}
+    reference = dataset_module.materialize_recording_cache(
+        fif_path,
+        config,
+        tmp_path / "reference",
+        io_strategy="reference",
+        timings=reference_timings,
+    )
+    optimized = dataset_module.materialize_recording_cache(
+        fif_path,
+        config,
+        tmp_path / "optimized",
+        io_strategy="optimized",
+        timings=optimized_timings,
+    )
+
+    assert reference.read_bytes() == optimized.read_bytes()
+    assert reference.with_suffix(".json").read_bytes() == optimized.with_suffix(
+        ".json"
+    ).read_bytes()
+    assert np.load(reference).dtype == np.float32
+    assert reference_timings["status"] == "materialized"
+    assert optimized_timings["status"] == "materialized"
+    assert not list((tmp_path / "optimized").glob("*.tmp"))
+
+
+def test_recording_materialization_resume_skips_raw_read(tmp_path, monkeypatch):
+    root = tmp_path / "dataset"
+    fif_path = _make_recording_files(root)
+    signal = np.arange(len(CHANNEL_NAMES) * 2000, dtype="float32").reshape(
+        len(CHANNEL_NAMES), 2000
+    )
+
+    class FakeRaw:
+        info = {"sfreq": 100.0}
+        ch_names = CHANNEL_NAMES
+        n_times = signal.shape[1]
+
+        def get_data(self, picks, start=None, stop=None):
+            indices = [self.ch_names.index(name) for name in picks]
+            return signal[indices, slice(start, stop)]
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(dataset_module, "_read_raw_fif", lambda path: FakeRaw())
+    config = _dataset_config(root)
+    cache_dir = tmp_path / "cache"
+    first = dataset_module.materialize_recording_cache(
+        fif_path, config, cache_dir, io_strategy="optimized"
+    )
+    monkeypatch.setattr(
+        dataset_module,
+        "_read_raw_fif",
+        lambda path: (_ for _ in ()).throw(AssertionError("不应重新打开 FIF")),
+    )
+    timings = {}
+    second = dataset_module.materialize_recording_cache(
+        fif_path, config, cache_dir, io_strategy="optimized", timings=timings
+    )
+    assert second == first
+    assert timings["status"] == "reused"
+
+
 def test_one_epoch_training_pipeline_on_synthetic_cache(tmp_path):
     root = tmp_path / "dataset"
     fif_path = _make_recording_files(root)
@@ -438,12 +528,13 @@ def test_one_epoch_training_pipeline_on_synthetic_cache(tmp_path):
     signature = dataset_module._preprocessing_signature(dataset_config, fif_path)
     cache_path.with_suffix(".json").write_text(
         json.dumps(
-            {
-                "status": "materialized",
-                "signature": signature,
-                "shape": list(recording.shape),
-                "dtype": "float32",
-            }
+                {
+                    "status": "materialized",
+                    "signature": signature,
+                    "shape": list(recording.shape),
+                    "dtype": "float32",
+                    "output_sha256": dataset_module._file_sha256(cache_path),
+                }
         ),
         encoding="utf-8",
     )

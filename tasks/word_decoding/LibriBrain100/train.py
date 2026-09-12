@@ -25,6 +25,7 @@ from braindecoding.experiment import (
     resolve_experiment_config,
     update_run_status,
 )
+from braindecoding.results import build_training_summary
 from braindecoding.training.runtime import (
     choose_device,
     cpu_state_dict,
@@ -296,8 +297,13 @@ def run_training(config, smoke=False, save=True, force_cache=False):
     set_seed(seed)
     device = choose_device(training_config.get("device", "auto"))
     event_path = ensure_event_table(config)
-    train_table = dataset_module.load_event_table(event_path, split="train")
-    val_table = dataset_module.load_event_table(event_path, split="val")
+    subjects = config["dataset"].get("subjects")
+    train_table = dataset_module.load_event_table(
+        event_path, split="train", subjects=subjects
+    )
+    val_table = dataset_module.load_event_table(
+        event_path, split="val", subjects=subjects
+    )
     if smoke:
         maximum = int(training_config.get("smoke_rows", 64))
         train_table = limit_rows(train_table, maximum)
@@ -481,7 +487,12 @@ def run_training(config, smoke=False, save=True, force_cache=False):
         "test_status": "locked_not_evaluated",
     }
     if save:
-        save_json(output_dir / "training_summary.json", summary)
+        saved_summary = (
+            build_training_summary(config, summary)
+            if "experiment" in config
+            else summary
+        )
+        save_json(output_dir / "training_summary.json", saved_summary)
     return summary
 
 

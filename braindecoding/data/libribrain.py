@@ -20,6 +20,10 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
+from braindecoding.data.derived import (
+    canonical_event_table as _canonical_event_table,
+    restore_legacy_columns,
+)
 from braindecoding.data.text import (
     ensure_text_embedding_cache,
     load_text_embedding_cache,
@@ -28,6 +32,55 @@ from braindecoding.data.text import (
 )
 from braindecoding.data.sensors import vectorview_channel_positions
 from braindecoding.events import add_core_event_columns
+
+
+CANONICAL_AUXILIARY_COLUMNS = {
+    "dataset": "数据集",
+    "task": "任务",
+    "session": "会话编号",
+    "run": "运行编号",
+    "sentence_index": "句子序号",
+    "word_index": "句内词序号",
+    "source_event_row": "源事件行号",
+    "word_duration_seconds": "词持续时间",
+    "word_id": "词类型编号",
+    "source_sampling_rate_hz": "源采样率Hz",
+    "source_sample_count": "源采样点数",
+    "recording_duration_seconds": "记录时长秒",
+    "window_start_seconds": "窗口开始时间",
+    "window_stop_seconds": "窗口结束时间",
+    "eligibility_window_stop_seconds": "资格窗口结束时间",
+    "window_start_source_sample": "窗口开始源采样点",
+    "window_stop_source_sample": "窗口结束源采样点",
+    "window_start_target_sample": "窗口开始目标采样点",
+    "window_stop_target_sample": "窗口结束目标采样点",
+    "target_sampling_rate_hz": "目标采样率Hz",
+    "target_sample_count": "目标采样点数",
+    "h5_relpath": "H5相对路径",
+    "events_relpath": "事件注释相对路径",
+    "in_libribrain50": "属于LibriBrain前50词表",
+    "window_complete": "窗口完整",
+}
+
+_CANONICAL_REDUNDANT_COLUMNS = {"onset_seconds"}
+
+
+def canonical_event_table(event_table: pd.DataFrame) -> pd.DataFrame:
+    """生成 LibriBrain100 中文优先的 canonical 磁盘事件表。"""
+    return _canonical_event_table(
+        event_table,
+        CANONICAL_AUXILIARY_COLUMNS,
+        redundant_columns=_CANONICAL_REDUNDANT_COLUMNS,
+    )
+
+
+def restore_event_table_columns(event_table: pd.DataFrame) -> pd.DataFrame:
+    """在内存中恢复旧训练消费者使用的英文列。"""
+    return restore_legacy_columns(
+        event_table,
+        CANONICAL_AUXILIARY_COLUMNS,
+        derived_aliases={"onset_seconds": "开始时间"},
+    )
 
 # 兼容旧调用入口；公共工具的实现只保留在 braindecoding.data。
 _embedding_signature = text_embedding_signature
@@ -471,8 +524,8 @@ def _parse_bool(value) -> bool:
     raise ValueError(f"无法解析布尔值：{value!r}")
 
 
-def load_event_table(path, split=None, trainable_only=True) -> pd.DataFrame:
-    table = pd.read_csv(path)
+def load_event_table(path, split=None, trainable_only=True, subjects=None) -> pd.DataFrame:
+    table = restore_event_table_columns(pd.read_csv(path, low_memory=False))
     required = {
         "split",
         "normalized_word",
@@ -486,6 +539,9 @@ def load_event_table(path, split=None, trainable_only=True) -> pd.DataFrame:
         raise ValueError(f"缓存事件表缺少字段：{missing}")
     if trainable_only:
         table = table[table["is_trainable"].map(_parse_bool)]
+    if subjects is not None:
+        subject_set = {str(value) for value in subjects}
+        table = table[table["subject_id"].astype(str).isin(subject_set)]
     if split is not None:
         table = table[table["split"].eq(split)]
     if table.empty:

@@ -3,6 +3,13 @@
 状态：`canonical_identity_frozen_legacy_outputs_untouched`  
 日期：2026-09-11
 
+> 2026-09-11 数据流水线决策：本清单继续作为 legacy → canonical 身份与结果对照，
+> 但其中原有 `rerun` 状态不再表示当前执行计划。当前 active 目标仅为
+> ChineseEEG2 `sub01-08/main_word`、`sub01-08/main_context`，SMN4Lang
+> `sub01-06/main_word`、`sub01-06/main_context`，以及 LibriBrain100 clean
+> pipeline 后的主要 word/context baseline。其余 scaling、development 与历史消融
+> 先保留为归档身份，不做机械重跑；最终状态以 `experiments/data_pipeline.md` 为准。
+
 本文件只定义实验身份、配置入口、目标运行目录和依赖关系，不认可或重算任何
 历史指标。历史 `outputs/` 保持原地不动；canonical 配置在本阶段继续通过
 `extends` 引用精确的 legacy 科学配置，以避免人工复制参数造成漂移。因此旧配置

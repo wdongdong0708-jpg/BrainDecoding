@@ -1,0 +1,524 @@
+import copy
+import importlib
+import json
+import subprocess
+from pathlib import Path
+
+import numpy as np
+import pytest
+import torch
+import yaml
+
+from braindecoding.evaluation.retrieval import (
+    fixed_vocabulary_retrieval_metrics,
+)
+from braindecoding.experiment import (
+    build_run_manifest,
+    environment_provenance,
+    git_tracked_dirty,
+    initialize_run_directory,
+    resolved_config_sha256,
+    scientific_config_sha256,
+)
+from braindecoding.results import (
+    PRIMARY_VOCABULARY_SIZES,
+    build_audit_summary,
+    build_evaluation_result,
+    build_training_summary,
+    canonical_retrieval,
+    canonical_vocabulary_result,
+    evaluate_vocabulary_manifests,
+    write_audit_summary,
+    write_evaluation_result,
+)
+import braindecoding.results as result_schema
+from experiments.compare_legacy_run import compare_legacy_run
+
+
+def _config(dataset="fixture", budget="updates", output_dir=None):
+    training = {
+        "seed": 0,
+        "device": "cpu",
+        "num_workers": 0,
+        "learning_rate": 1e-3,
+        "output_dir": str(output_dir or Path("outputs") / dataset),
+    }
+    if budget == "updates":
+        training.update(max_updates=100, epochs=20)
+    else:
+        training.update(epochs=12)
+    return {
+        "experiment": {
+            "task": "word_decoding",
+            "dataset": dataset,
+            "subject_scope": "sub01",
+            "id": "main_word",
+            "category": "main",
+        },
+        "dataset": {
+            "root": "D:/dataset/example",
+            "subjects": ["sub-01"],
+            "window_seconds": 1.0,
+        },
+        "model": {"hidden_dim": 8},
+        "training": training,
+    }
+
+
+def _key_shape(value):
+    if isinstance(value, dict):
+        return {key: _key_shape(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return "list"
+    return type(value).__name__
+
+
+def _evaluation(config, vocabulary_result):
+    return build_evaluation_result(
+        config,
+        split="val",
+        query_count=6,
+        event_table_sha256="e" * 64,
+        subjects=["sub-01"],
+        checkpoint={
+            "path": "best.pt",
+            "sha256": "c" * 64,
+            "epoch": 3,
+            "update": 75,
+        },
+        vocabulary_results={20: vocabulary_result},
+    )
+
+
+def test_evaluation_schema_is_identical_for_three_word_datasets():
+    block = canonical_vocabulary_result(
+        20,
+        manifest_sha256="v" * 64,
+        retrieval_metrics={
+            "query_count": 6,
+            "vocabulary_size": 20,
+            "observed_vocabulary_size": 20,
+            "missing_vocabulary_words": [],
+            "micro_recall_at_1": 0.25,
+            "micro_recall_at_10": 0.75,
+            "macro_recall_at_1": 0.2,
+            "macro_recall_at_10": 0.7,
+            "median_rank": 4.0,
+            "mean_reciprocal_rank": 0.4,
+        },
+        ovmi_story={"available": True, "score_bits": 0.5, "coverage": 0.8},
+    )
+    payloads = [
+        _evaluation(_config(dataset), block)
+        for dataset in (
+            "chineseeeg2_littleprince",
+            "smn4lang",
+            "libribrain100",
+        )
+    ]
+    assert all(payload["schema_version"] == 1 for payload in payloads)
+    assert _key_shape(payloads[0]) == _key_shape(payloads[1]) == _key_shape(payloads[2])
+
+
+def test_three_evaluators_share_the_same_canonical_serializer():
+    modules = (
+        "tasks.word_decoding.ChineseEEG2_LittlePrince.evaluate",
+        "tasks.word_decoding.SMN4Lang.evaluate",
+        "tasks.word_decoding.LibriBrain100.evaluate",
+    )
+    for module_name in modules:
+        module = importlib.import_module(module_name)
+        assert (
+            module.canonical_evaluation_from_legacy
+            is result_schema.canonical_evaluation_from_legacy
+        )
+
+
+def test_three_trainers_share_the_same_canonical_training_summary_builder():
+    modules = (
+        "tasks.word_decoding.ChineseEEG2_LittlePrince.train",
+        "tasks.word_decoding.SMN4Lang.train",
+        "tasks.word_decoding.LibriBrain100.train",
+    )
+    for module_name in modules:
+        module = importlib.import_module(module_name)
+        assert module.build_training_summary is result_schema.build_training_summary
+
+
+def test_four_vocabularies_share_one_validation_file_and_no_test_is_created(tmp_path):
+    config = _config(output_dir=tmp_path / "seed-000")
+    payload = _evaluation(
+        config,
+        canonical_vocabulary_result(20, manifest_sha256="v" * 64),
+    )
+    path = write_evaluation_result(config, payload)
+
+    assert path == tmp_path / "seed-000" / "evaluation" / "val.json"
+    assert set(json.loads(path.read_text(encoding="utf-8"))["vocabularies"]) == {
+        "20",
+        "50",
+        "100",
+        "150",
+    }
+    assert not (path.parent / "test.json").exists()
+
+
+def test_canonical_retrieval_values_equal_existing_public_metrics():
+    queries = np.asarray([[1.0, 0.0], [0.0, 1.0], [0.8, 0.2]])
+    targets = np.asarray([[1.0, 0.0], [0.0, 1.0], [1.0, 0.0]])
+    words = ["甲", "乙", "甲"]
+    metrics = fixed_vocabulary_retrieval_metrics(
+        queries,
+        targets,
+        words,
+        ["甲", "乙"],
+        top_ks=(1, 10),
+    )
+
+    result = canonical_retrieval(metrics)
+
+    assert result == {
+        "top1": metrics["micro_recall_at_1"],
+        "top10": metrics["micro_recall_at_10"],
+        "macro_top1": metrics["macro_recall_at_1"],
+        "macro_top10": metrics["macro_recall_at_10"],
+        "median_rank": metrics["median_rank"],
+        "mrr": metrics["mean_reciprocal_rank"],
+    }
+
+
+def test_four_vocabulary_blocks_reuse_existing_retrieval_numbers():
+    queries = np.asarray([[1.0, 0.0], [0.0, 1.0], [0.8, 0.2]])
+    targets = np.asarray([[1.0, 0.0], [0.0, 1.0], [1.0, 0.0]])
+    words = ["甲", "乙", "甲"]
+    manifests = {}
+    for size in PRIMARY_VOCABULARY_SIZES:
+        vocabulary = ["甲", "乙"] + [f"缺失{index}" for index in range(size - 2)]
+        manifests[size] = {
+            "vocabulary": vocabulary,
+            "manifest_sha256": str(size) * 64,
+        }
+    results = evaluate_vocabulary_manifests(
+        queries,
+        targets,
+        words,
+        manifests,
+        {"甲": 3, "乙": 2},
+        language="zh",
+    )
+    expected = fixed_vocabulary_retrieval_metrics(
+        queries,
+        targets,
+        words,
+        manifests[20]["vocabulary"],
+        top_ks=(1, 10),
+        vocabulary_name="frozen_N20",
+    )
+    assert set(results) == set(PRIMARY_VOCABULARY_SIZES)
+    assert results[20]["retrieval"] == canonical_retrieval(expected)
+    assert results[20]["ovmi"]["story"] == {
+        "available": False,
+        "reason": "missing_true_class_support",
+    }
+
+
+def test_ovmi_unavailable_reasons_follow_frozen_protocol():
+    block = canonical_vocabulary_result(
+        20,
+        manifest_sha256="v" * 64,
+        retrieval_metrics={
+            "vocabulary_size": 20,
+            "observed_vocabulary_size": 18,
+            "missing_vocabulary_words": ["甲", "乙"],
+        },
+    )
+    assert block["support"] == {
+        "supported_candidate_count": 18,
+        "missing_candidate_count": 2,
+        "missing_words": ["甲", "乙"],
+    }
+    assert block["ovmi"]["story"] == {
+        "available": False,
+        "reason": "missing_true_class_support",
+    }
+    assert block["ovmi"]["domain"] == {
+        "available": False,
+        "reason": "domain_reference_not_frozen",
+    }
+
+
+@pytest.mark.parametrize(
+    "budget,expected_type,expected_value,completed_updates",
+    (("updates", "updates", 100, 82), ("epochs", "epochs", 12, None)),
+)
+def test_training_summary_represents_real_budget_types(
+    tmp_path,
+    budget,
+    expected_type,
+    expected_value,
+    completed_updates,
+):
+    config = _config(budget=budget, output_dir=tmp_path / budget)
+    legacy = {
+        "status": "training_completed",
+        "selection_metric": "macro_recall_at_10",
+        "best_score": 0.4,
+        "best_epoch": 2,
+        "history": [{"epoch": 1}, {"epoch": 2, "optimizer_updates": 75}],
+        "optimizer_updates": completed_updates,
+        "target_updates": 100 if budget == "updates" else None,
+        "test_status": "locked_not_evaluated",
+    }
+
+    result = build_training_summary(config, legacy)
+
+    assert result["schema_version"] == 1
+    assert result["training"]["budget"] == {
+        "type": expected_type,
+        "value": expected_value,
+    }
+    assert result["training"]["completed_epochs"] == 2
+    assert result["training"]["completed_updates"] == completed_updates
+    assert result["selection"]["best_update"] == (
+        75 if budget == "updates" else None
+    )
+    assert set(result["checkpoint"]) == {"best", "last"}
+
+
+def test_run_manifest_has_schema_environment_and_two_config_hashes():
+    config = _config()
+    manifest = build_run_manifest(config, ["python", "train.py"])
+    environment = manifest["environment"]
+    assert manifest["schema_version"] == 1
+    assert manifest["experiment"]["dataset"] == "fixture"
+    assert manifest["resolved_config_sha256"] == resolved_config_sha256(config)
+    assert manifest["scientific_config_sha256"] == scientific_config_sha256(config)
+    assert isinstance(manifest["git_dirty"], bool)
+    assert set(environment) == {
+        "python_version",
+        "torch_version",
+        "numpy_version",
+        "cuda_available",
+        "cuda_version",
+        "cudnn_version",
+        "gpu_name",
+        "mne_version",
+        "transformers_version",
+    }
+    assert environment_provenance() == environment
+
+
+def test_git_dirty_ignores_untracked_and_ignored_files(tmp_path):
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"], cwd=tmp_path, check=True
+    )
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, check=True)
+    (tmp_path / ".gitignore").write_text("ignored/\n", encoding="utf-8")
+    tracked = tmp_path / "tracked.txt"
+    tracked.write_text("stable\n", encoding="utf-8")
+    subprocess.run(["git", "add", ".gitignore", "tracked.txt"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-qm", "baseline"], cwd=tmp_path, check=True)
+
+    (tmp_path / "untracked.txt").write_text("local\n", encoding="utf-8")
+    ignored = tmp_path / "ignored" / "artifact.bin"
+    ignored.parent.mkdir()
+    ignored.write_bytes(b"local")
+    assert git_tracked_dirty(tmp_path) is False
+
+    tracked.write_text("changed\n", encoding="utf-8")
+    assert git_tracked_dirty(tmp_path) is True
+
+
+def test_canonical_run_refuses_tracked_dirty_without_explicit_development_bypass(
+    monkeypatch, tmp_path
+):
+    config = _config(output_dir=tmp_path / "unused")
+    monkeypatch.setattr("braindecoding.experiment.git_tracked_dirty", lambda *_: True)
+    with pytest.raises(RuntimeError, match="tracked 修改"):
+        initialize_run_directory(config, "train", output_root=tmp_path)
+    output_dir, manifest = initialize_run_directory(
+        config,
+        "train",
+        output_root=tmp_path,
+        allow_dirty=True,
+    )
+    assert output_dir.is_dir()
+    assert manifest["git_dirty"] is True
+
+
+def test_scientific_hash_ignores_operational_paths_but_not_science(monkeypatch):
+    left = _config(output_dir="D:/runs/one")
+    left["text_embedding"] = {"model_name": "D:/models/mengzi-t5-base"}
+    left["dataset"]["alignment_path"] = (
+        "outputs/女声一小王子时间戳/alignment.xlsx"
+    )
+    right = copy.deepcopy(left)
+    right["training"]["output_dir"] = "E:/other/runs/two"
+    right["training"]["pretrained_brain_encoder_checkpoint"] = "E:/runs/best.pt"
+    left["training"]["pretrained_brain_encoder_checkpoint"] = "D:/runs/best.pt"
+    right["dataset"]["root"] = "E:/neuro/example"
+    right["text_embedding"]["model_name"] = "E:/models/mengzi-t5-base"
+    right["dataset"]["alignment_path"] = (
+        "artifacts/alignments/chineseeeg2_littleprince/f1/alignment.xlsx"
+    )
+    right["provenance"] = {"host": "machine-b"}
+    left["provenance"] = {"host": "machine-a"}
+
+    assert resolved_config_sha256(left) != resolved_config_sha256(right)
+    monkeypatch.setenv("BRAINDATA_ROOT", "D:/dataset")
+    monkeypatch.setenv("BRAINDECODING_MODEL_ROOT", "D:/models")
+    left_scientific_sha = scientific_config_sha256(left)
+    monkeypatch.setenv("BRAINDATA_ROOT", "E:/neuro")
+    monkeypatch.setenv("BRAINDECODING_MODEL_ROOT", "E:/models")
+    assert left_scientific_sha == scientific_config_sha256(right)
+
+    changed = copy.deepcopy(left)
+    changed["dataset"]["window_seconds"] = 3.0
+    monkeypatch.setenv("BRAINDATA_ROOT", "D:/dataset")
+    monkeypatch.setenv("BRAINDECODING_MODEL_ROOT", "D:/models")
+    assert scientific_config_sha256(left) != scientific_config_sha256(changed)
+
+
+def test_audit_summary_uses_fixed_controls_and_marks_missing_as_not_run():
+    summary = build_audit_summary(
+        _config(),
+        checkpoint={"path": "best.pt", "sha256": "c" * 64},
+        query_set={"split": "val", "sha256": "q" * 64, "query_count": 10},
+        controls={"clean": {"status": "completed", "top1": 0.2}},
+    )
+    assert summary["schema_version"] == 1
+    assert summary["controls"]["clean"]["top1"] == 0.2
+    assert summary["controls"]["temporal_shift"] == {"status": "not_run"}
+    assert summary["controls"]["donor_following"] == {"status": "not_run"}
+
+
+def test_audit_summary_uses_canonical_validation_path(tmp_path):
+    config = _config(output_dir=tmp_path / "seed-000")
+    summary = build_audit_summary(
+        config,
+        checkpoint={"path": "best.pt", "sha256": "c" * 64},
+        query_set={"split": "val", "sha256": "q" * 64, "query_count": 10},
+        controls={},
+    )
+    path = write_audit_summary(config, summary)
+    assert path == tmp_path / "seed-000/audits/validation/summary.json"
+    assert json.loads(path.read_text(encoding="utf-8"))["schema_version"] == 1
+
+
+def test_legacy_comparison_is_read_only_and_reports_exact_differences(tmp_path):
+    canonical = tmp_path / "canonical"
+    legacy = tmp_path / "legacy"
+    canonical.mkdir()
+    legacy.mkdir()
+    config = _config(output_dir=canonical)
+    (canonical / "resolved_config.yaml").write_text(
+        yaml.safe_dump(config, allow_unicode=True), encoding="utf-8"
+    )
+    (canonical / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "experiment": config["experiment"] | {"experiment_id": "main_word"},
+                "scientific_config_sha256": scientific_config_sha256(config),
+                "event_table": {"path": "events.csv", "sha256": "e" * 64},
+            }
+        ),
+        encoding="utf-8",
+    )
+    training = build_training_summary(
+        config,
+        {
+            "status": "training_completed",
+            "selection_metric": "macro_recall_at_10",
+            "best_score": 0.4,
+            "best_epoch": 2,
+            "optimizer_updates": 80,
+            "target_updates": 100,
+            "history": [{"epoch": 1}, {"epoch": 2, "optimizer_updates": 75}],
+            "test_status": "locked_not_evaluated",
+        },
+    )
+    (canonical / "training_summary.json").write_text(json.dumps(training), encoding="utf-8")
+    block = canonical_vocabulary_result(
+        50,
+        retrieval_metrics={
+            "vocabulary_size": 50,
+            "observed_vocabulary_size": 50,
+            "missing_vocabulary_words": [],
+            "micro_recall_at_1": 0.1,
+            "micro_recall_at_10": 0.5,
+            "macro_recall_at_1": 0.08,
+            "macro_recall_at_10": 0.4,
+            "median_rank": 8.0,
+            "mean_reciprocal_rank": 0.2,
+        },
+    )
+    evaluation = build_evaluation_result(
+        config,
+        split="val",
+        query_count=25,
+        event_table_sha256="e" * 64,
+        subjects=["sub-01"],
+        checkpoint={"path": "best.pt", "sha256": "c" * 64, "epoch": 2, "update": 75},
+        vocabulary_results={50: block},
+    )
+    (canonical / "evaluation").mkdir()
+    (canonical / "evaluation" / "val.json").write_text(
+        json.dumps(evaluation), encoding="utf-8"
+    )
+
+    state = {"model_state": {"weight": torch.zeros(2, 3)}}
+    torch.save(state, canonical / "best.pt")
+    torch.save(state, legacy / "best.pt")
+    legacy_summary = {
+        "best_epoch": 2,
+        "optimizer_updates": 80,
+        "history": [{"epoch": 1}, {"epoch": 2, "optimizer_updates": 75}],
+        "best_score": 0.39,
+        "event_table": "events.csv",
+    }
+    legacy_evaluation = {
+        "query_rows": 25,
+        "metrics": {
+            "micro_recall_at_1": 0.1,
+            "micro_recall_at_10": 0.49,
+            "macro_recall_at_1": 0.08,
+            "macro_recall_at_10": 0.39,
+            "median_rank": 8.0,
+            "mean_reciprocal_rank": 0.2,
+        },
+    }
+    (legacy / "training_summary.json").write_text(
+        json.dumps(legacy_summary), encoding="utf-8"
+    )
+    legacy_eval_path = legacy / "evaluation_val.json"
+    legacy_eval_path.write_text(json.dumps(legacy_evaluation), encoding="utf-8")
+    before = {
+        path: (path.read_bytes(), path.stat().st_mtime_ns)
+        for path in legacy.rglob("*")
+        if path.is_file()
+    }
+    entry = {
+        "legacy_run_id": "fixture",
+        "legacy_config": None,
+        "legacy_output": str(legacy),
+        "canonical_identity": None,
+        "checkpoint_files": [{"relative_path": str(legacy / "best.pt")}],
+        "evaluation_files": [{"relative_path": str(legacy_eval_path)}],
+        "summary_files": [{"relative_path": str(legacy / "training_summary.json")}],
+        "audit_files": [],
+    }
+
+    comparison = compare_legacy_run(canonical, entry, project_root=tmp_path)
+
+    assert comparison["schema_version"] == 1
+    assert comparison["checkpoint_contract"]["keys_equal"] is True
+    assert comparison["checkpoint_contract"]["shapes_equal"] is True
+    assert comparison["validation_query_count"]["equal"] is True
+    assert comparison["selection"]["best_update"]["equal"] is True
+    assert comparison["retrieval_metrics"]["macro_top10"]["difference"] == pytest.approx(0.01)
+    assert not (canonical / "evaluation" / "test.json").exists()
+    for path, (content, modified) in before.items():
+        assert path.read_bytes() == content
+        assert path.stat().st_mtime_ns == modified

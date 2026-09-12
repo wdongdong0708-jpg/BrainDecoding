@@ -1,6 +1,8 @@
 outputs/
 artifacts/*
 !artifacts/README.md
+derived/*
+!derived/README.md
 *.npz
 *.csv
 *.json

@@ -19,6 +19,12 @@ except ImportError:  # 通过脚本或 run.py 直接加载时没有父包。
 
 from braindecoding.data import smn4lang as dataset_module
 from braindecoding.experiment import evaluation_output_path
+from braindecoding.results import (
+    canonical_evaluation_from_legacy,
+    evaluate_vocabulary_manifests,
+    load_vocabulary_assets,
+    write_evaluation_result,
+)
 from models import build_brain_embedding_model
 from braindecoding.evaluation.ovmi import fixed_vocabulary_ovmi_metrics
 
@@ -38,7 +44,9 @@ def evaluate_checkpoint(
     training.set_seed(int(config["training"]["seed"]))
     device = training.choose_device(config["training"].get("device", "auto"))
     event_path = training.ensure_event_table(config)
-    table = dataset_module.load_event_table(event_path, split=split)
+    table = dataset_module.load_event_table(
+        event_path, split=split, subjects=config["dataset"].get("subjects")
+    )
     if smoke:
         table = training.limit_rows(
             table, int(config["training"].get("smoke_rows", 64))
@@ -109,9 +117,32 @@ def evaluate_checkpoint(
         summary["controls"]["zero_meg"] = zero_metrics
 
     if save:
-        training.save_json(
-            evaluation_output_path(config, split, smoke=smoke), summary
-        )
+        if "experiment" in config:
+            vocabulary_manifests, story_reference = load_vocabulary_assets(
+                PROJECT_ROOT / "experiments" / "manifests" / "smn4lang"
+            )
+            vocabulary_results = evaluate_vocabulary_manifests(
+                encoded["predictions"],
+                encoded["targets"],
+                encoded["words"],
+                vocabulary_manifests,
+                story_reference,
+                language="zh",
+            )
+            canonical = canonical_evaluation_from_legacy(
+                config,
+                summary,
+                event_table_path=event_path,
+                subjects=table["subject_id"].astype(str).drop_duplicates().tolist(),
+                checkpoint_path=checkpoint_path,
+                checkpoint=checkpoint,
+                vocabulary_results=vocabulary_results,
+            )
+            write_evaluation_result(config, canonical, smoke=smoke)
+        else:
+            training.save_json(
+                evaluation_output_path(config, split, smoke=smoke), summary
+            )
     return summary
 
 

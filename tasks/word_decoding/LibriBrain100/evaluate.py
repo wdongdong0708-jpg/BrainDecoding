@@ -19,6 +19,10 @@ except ImportError:  # 通过脚本或 run.py 直接加载时没有父包。
 
 from braindecoding.data import libribrain as dataset_module
 from braindecoding.experiment import evaluation_output_path
+from braindecoding.results import (
+    canonical_evaluation_from_legacy,
+    write_evaluation_result,
+)
 from models import build_brain_embedding_model
 from braindecoding.evaluation.ovmi import fixed_vocabulary_ovmi_metrics
 
@@ -38,7 +42,9 @@ def evaluate_checkpoint(
     training.set_seed(int(config["training"]["seed"]))
     device = training.choose_device(config["training"].get("device", "auto"))
     event_path = training.ensure_event_table(config)
-    table = dataset_module.load_event_table(event_path, split=split)
+    table = dataset_module.load_event_table(
+        event_path, split=split, subjects=config["dataset"].get("subjects")
+    )
     if smoke:
         table = training.limit_rows(
             table, int(config["training"].get("smoke_rows", 64))
@@ -107,9 +113,20 @@ def evaluate_checkpoint(
         summary["controls"]["zero_meg"] = zero_metrics
 
     if save:
-        training.save_json(
-            evaluation_output_path(config, split, smoke=smoke), summary
-        )
+        if "experiment" in config:
+            canonical = canonical_evaluation_from_legacy(
+                config,
+                summary,
+                event_table_path=event_path,
+                subjects=table["subject_id"].astype(str).drop_duplicates().tolist(),
+                checkpoint_path=checkpoint_path,
+                checkpoint=checkpoint,
+            )
+            write_evaluation_result(config, canonical, smoke=smoke)
+        else:
+            training.save_json(
+                evaluation_output_path(config, split, smoke=smoke), summary
+            )
     return summary
 
 

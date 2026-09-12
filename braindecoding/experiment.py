@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import copy
 import hashlib
+from importlib import metadata
 import json
+import os
+import platform
 import re
 import subprocess
 from pathlib import Path
@@ -24,6 +27,15 @@ EXPERIMENT_CATEGORIES = (
 _IDENTITY_KEYS = ("task", "dataset", "subject_scope", "id")
 _RUN_STATUSES = ("running", "failed", "completed")
 _IDENTITY_COMPONENT = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+_PROJECT_PATH_PREFIXES = (
+    "artifacts/",
+    "configs/",
+    "derived/",
+    "experiments/",
+    "outputs/",
+    "references/",
+    "tasks/",
+)
 
 
 def experiment_identity(config):
@@ -105,6 +117,20 @@ def resolve_experiment_config(config, output_root=None):
         return resolved
     output_dir = str(run_directory(resolved, output_root=output_root))
     resolved.setdefault("training", {})["output_dir"] = output_dir
+    dataset_name = experiment_identity(resolved)["dataset"]
+    if dataset_name in {
+        "chineseeeg2_littleprince",
+        "smn4lang",
+        "libribrain100",
+    }:
+        # 只有 canonical 词级配置改用 derived；legacy 配置仍保留原缓存路径。
+        from braindecoding.data.derived import canonical_cache_paths
+
+        resolved.setdefault("cache", {}).update(canonical_cache_paths(dataset_name))
+        if dataset_name in {"chineseeeg2_littleprince", "smn4lang"}:
+            resolved.setdefault("dataset", {})[
+                "signal_cache_subject_subdirectories"
+            ] = True
     if "closed_set_diagnostic" in resolved:
         resolved["closed_set_diagnostic"]["output_dir"] = output_dir
     checkpoint = warm_start_checkpoint(resolved, output_root=output_root)
@@ -136,6 +162,65 @@ def resolved_config_sha256(config):
     return hashlib.sha256(payload).hexdigest()
 
 
+def _portable_path(value, key=None):
+    """把机器绝对路径归一为项目或环境变量下的稳定身份。"""
+    text = str(value).replace("\\", "/")
+    path = Path(value)
+    if key and (
+        key.endswith("_path")
+        or key.endswith("_dir")
+        or key in {"event_table", "text_embeddings"}
+    ):
+        return f"<RESOURCE>/{path.name}"
+    roots = [("PROJECT_ROOT", PROJECT_ROOT)]
+    for name in ("BRAINDATA_ROOT", "BRAINDECODING_MODEL_ROOT"):
+        root = os.environ.get(name)
+        if root:
+            roots.append((name, Path(root)))
+    if path.is_absolute():
+        for name, root in roots:
+            try:
+                relative = path.resolve().relative_to(root.resolve()).as_posix()
+            except ValueError:
+                continue
+            return f"${{{name}}}/{relative}" if relative != "." else f"${{{name}}}"
+        return f"<ABSOLUTE_PATH>/{path.name}"
+    if text.startswith(_PROJECT_PATH_PREFIXES):
+        return f"${{PROJECT_ROOT}}/{text}"
+    return value
+
+
+def _scientific_config(value, path=()):
+    """移除运行位置与机器 provenance，同时保留科学参数。"""
+    if isinstance(value, dict):
+        result = {}
+        for key, item in value.items():
+            key = str(key)
+            if not path and key in {"experiment", "provenance"}:
+                continue
+            if path == ("training",) and key in {
+                "device",
+                "num_workers",
+                "output_dir",
+                "pretrained_brain_encoder_checkpoint",
+            }:
+                continue
+            result[key] = _scientific_config(item, (*path, key))
+        return result
+    if isinstance(value, (list, tuple)):
+        return [_scientific_config(item, path) for item in value]
+    if isinstance(value, Path):
+        return _portable_path(value, path[-1] if path else None)
+    if isinstance(value, str):
+        return _portable_path(value, path[-1] if path else None)
+    return value
+
+
+def scientific_config_sha256(config):
+    """计算排除运行目录、机器路径和纯 provenance 的科学配置摘要。"""
+    return resolved_config_sha256(_scientific_config(config))
+
+
 def file_sha256(path):
     """计算文件 SHA-256；文件不存在时返回 ``None``。"""
     path = Path(path)
@@ -148,15 +233,66 @@ def file_sha256(path):
     return digest.hexdigest()
 
 
-def _git_commit():
+def _git_commit(project_root=PROJECT_ROOT):
     result = subprocess.run(
         ["git", "rev-parse", "HEAD"],
-        cwd=PROJECT_ROOT,
+        cwd=project_root,
         capture_output=True,
         text=True,
         check=False,
     )
     return result.stdout.strip() if result.returncode == 0 else None
+
+
+def git_tracked_dirty(project_root=PROJECT_ROOT):
+    """只检查已跟踪文件的 staged/unstaged 修改，忽略本地未跟踪资产。"""
+    result = subprocess.run(
+        ["git", "status", "--porcelain=v1", "--untracked-files=no"],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"无法检查 Git 工作树状态：{result.stderr.strip()}")
+    return bool(result.stdout.strip())
+
+
+def _package_version(name):
+    try:
+        return metadata.version(name)
+    except metadata.PackageNotFoundError:
+        return None
+
+
+def environment_provenance():
+    """读取版本和 CUDA 元数据，不下载依赖或访问实验数据。"""
+    torch_version = _package_version("torch")
+    cuda_available = False
+    cuda_version = None
+    cudnn_version = None
+    gpu_name = None
+    try:
+        import torch
+
+        cuda_available = bool(torch.cuda.is_available())
+        cuda_version = torch.version.cuda
+        cudnn_version = torch.backends.cudnn.version()
+        if cuda_available:
+            gpu_name = torch.cuda.get_device_name(0)
+    except (ImportError, OSError, RuntimeError):
+        pass
+    return {
+        "python_version": platform.python_version(),
+        "torch_version": torch_version,
+        "numpy_version": _package_version("numpy"),
+        "cuda_available": cuda_available,
+        "cuda_version": cuda_version,
+        "cudnn_version": cudnn_version,
+        "gpu_name": gpu_name,
+        "mne_version": _package_version("mne"),
+        "transformers_version": _package_version("transformers"),
+    }
 
 
 def _path_record(path):
@@ -179,9 +315,13 @@ def build_run_manifest(
     if event_table is None:
         event_table = config.get("training", {}).get("event_table")
     return {
-        "experiment_identity": identity,
+        "schema_version": 1,
+        "experiment": identity,
         "resolved_config_sha256": resolved_config_sha256(config),
+        "scientific_config_sha256": scientific_config_sha256(config),
         "git_commit": _git_commit(),
+        "git_dirty": git_tracked_dirty(),
+        "environment": environment_provenance(),
         "command": command if isinstance(command, str) else list(command),
         "seed": identity["seed"],
         "event_table": _path_record(event_table) if event_table else None,
@@ -203,8 +343,15 @@ def initialize_run_directory(
     output_root=None,
     protocol_manifests=(),
     vocabulary_manifests=(),
+    allow_dirty=False,
 ):
     """建立标准运行资产，并拒绝含糊覆盖已有目录。"""
+    dirty = git_tracked_dirty()
+    if dirty and not allow_dirty:
+        raise RuntimeError(
+            "canonical 正式运行检测到 Git tracked 修改，拒绝启动；"
+            "请先提交代码，或仅在测试/开发调用中显式 allow_dirty=True。"
+        )
     resolved = resolve_experiment_config(config, output_root=output_root)
     output_dir = run_directory(resolved, output_root=output_root)
     manifest_path = output_dir / "run_manifest.json"

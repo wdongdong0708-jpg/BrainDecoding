@@ -1,0 +1,23 @@
+extends: ../../../SMN4Lang_1s.yaml
+
+experiment:
+  task: word_decoding
+  dataset: smn4lang
+  subject_scope: sub01-06
+  id: main_context
+  category: main
+
+dataset:
+  root: ${BRAINDATA_ROOT}/SMN4Lang
+  subjects: [sub-01, sub-02, sub-03, sub-04, sub-05, sub-06]
+  expected_annotated_word_counts:
+    train: 216276
+    val: 23238
+    test: 20448
+  expected_trainable_counts:
+    train: 214861
+    val: 23076
+    test: 20310
+
+training:
+  warm_start_from: main_word

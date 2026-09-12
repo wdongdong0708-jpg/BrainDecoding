@@ -30,6 +30,7 @@ from braindecoding.experiment import (
     resolve_experiment_config,
     update_run_status,
 )
+from braindecoding.results import build_training_summary
 from braindecoding.training.runtime import (
     choose_device,
     cpu_state_dict,
@@ -122,13 +123,19 @@ def 确保事件表(config):
     path = Path(config["cache"]["event_table"])
     if not path.exists():
         准备事件表(config)
-    grouping = pd.read_csv(path, usecols=["context_grouping"])["context_grouping"]
+    cached = dataset_module.载入事件表(path, trainable_only=False)
+    grouping = cached["context_grouping"]
     if not grouping.eq(config["dataset"]["context_grouping"]).all():
         raise ValueError("事件缓存的语境分组方式与配置不一致。")
     semantic_context = config["dataset"].get("semantic_context")
     if semantic_context is not None:
         audit_path = path.with_suffix(".audit.json")
-        audit = json.loads(audit_path.read_text(encoding="utf-8"))
+        if audit_path.exists():
+            audit = json.loads(audit_path.read_text(encoding="utf-8"))
+        else:
+            manifest_path = path.parent / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            audit = manifest.get("audit", {})
         if audit.get("semantic_context") != semantic_context:
             raise ValueError("事件缓存的语义片段参数与配置不一致。")
     return path
@@ -510,8 +517,13 @@ def 执行训练(config, smoke=False, save=True, force_cache=False):
     set_seed(int(training_config["seed"]))
     device = choose_device(training_config.get("device", "auto"))
     event_path = 确保事件表(config)
-    train_table = dataset_module.载入事件表(event_path, split="train")
-    val_table = dataset_module.载入事件表(event_path, split="val")
+    subjects = config["dataset"].get("subjects")
+    train_table = dataset_module.载入事件表(
+        event_path, split="train", subjects=subjects
+    )
+    val_table = dataset_module.载入事件表(
+        event_path, split="val", subjects=subjects
+    )
     if smoke:
         maximum = int(training_config.get("smoke_rows", 64))
         train_table = limit_rows(train_table, maximum)
@@ -737,7 +749,12 @@ def 执行训练(config, smoke=False, save=True, force_cache=False):
         "test_status": "locked_not_evaluated",
     }
     if save:
-        save_json(output_dir / "training_summary.json", summary)
+        saved_summary = (
+            build_training_summary(config, summary)
+            if "experiment" in config
+            else summary
+        )
+        save_json(output_dir / "training_summary.json", saved_summary)
     return summary
 
 
