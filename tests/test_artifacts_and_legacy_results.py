@@ -148,12 +148,13 @@ def test_legacy_manifest_records_existing_files_without_reading_their_payloads()
     )
     assert all(re.fullmatch(r"[0-9a-f]{64}", item["sha256"]) for item in records)
 
-    output_dirs = [PROJECT_ROOT / run["legacy_output"] for run in manifest["runs"]]
-    if not all(path.is_dir() for path in output_dirs):
-        pytest.skip("本机没有 Git 忽略的完整历史 outputs")
-    for item in records:
+    # 大扫除后只校验仍保留原位的历史数值参照；manifest 允许记录已清理文件。
+    existing = [
+        item for item in records if (PROJECT_ROOT / item["relative_path"]).is_file()
+    ]
+    assert existing
+    for item in existing:
         path = PROJECT_ROOT / item["relative_path"]
-        assert path.is_file()
         assert path.stat().st_size == item["size_bytes"]
 
 

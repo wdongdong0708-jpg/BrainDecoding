@@ -40,7 +40,7 @@ def _config_path(dataset: str) -> Path:
     if dataset == "smn4lang":
         return PROJECT_ROOT / "configs/word_decoding/smn4lang/sub01-06/main_context.yaml"
     if dataset == "libribrain100":
-        return PROJECT_ROOT / "configs/word_decoding/libribrain100/sub0/historical_grouped_1s.yaml"
+        return PROJECT_ROOT / "configs/word_decoding/libribrain100/sub0/main_context.yaml"
     raise ValueError(f"未知数据集：{dataset}")
 
 

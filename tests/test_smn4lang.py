@@ -159,16 +159,15 @@ def test_training_uses_all_complete_words_not_only_top50():
     assert training_event_mask(frame).tolist() == [True, True, False, False]
 
 
-def test_conv_only_config_changes_only_transformer_switch_and_output_dir(monkeypatch):
+def test_active_word_and_context_configs_share_six_subject_contract(monkeypatch):
     monkeypatch.setenv("BRAINDATA_ROOT", "D:/dataset")
     monkeypatch.setenv(
         "BRAINDECODING_MODEL_ROOT", "D:/code/dascoli-word-decoding/models"
     )
     project_root = Path(__file__).resolve().parents[1]
-    transformer_config = load_config(project_root / "configs" / "SMN4Lang.yaml")
-    conv_only_config = load_config(
-        project_root / "configs" / "SMN4Lang_conv_only.yaml"
-    )
+    root = project_root / "configs/word_decoding/smn4lang/sub01-06"
+    transformer_config = load_config(root / "main_context.yaml")
+    conv_only_config = load_config(root / "main_word.yaml")
 
     assert transformer_config["model"]["use_transformer"] is True
     assert conv_only_config["model"]["use_transformer"] is False
@@ -176,40 +175,30 @@ def test_conv_only_config_changes_only_transformer_switch_and_output_dir(monkeyp
         transformer_config["training"]["output_dir"]
         != conv_only_config["training"]["output_dir"]
     )
-    transformer_config["model"]["use_transformer"] = False
-    transformer_config["training"]["output_dir"] = conv_only_config["training"][
-        "output_dir"
+    assert transformer_config["dataset"] == conv_only_config["dataset"]
+    assert transformer_config["cache"] == conv_only_config["cache"]
+    assert transformer_config["dataset"]["subjects"] == [
+        f"sub-{index:02d}" for index in range(1, 7)
     ]
-    for section in (
-        "dataset",
-        "cache",
-        "text_embedding",
-        "model",
-        "loss",
-        "training",
-        "evaluation",
-    ):
-        assert transformer_config[section] == conv_only_config[section]
+    assert all(
+        Path(value).resolve().is_relative_to((project_root / "derived").resolve())
+        for value in transformer_config["cache"].values()
+    )
 
 
-def test_one_second_cnn_warm_start_changes_only_training_stages_and_output(
-    monkeypatch,
-):
+def test_active_context_warm_start_points_to_active_word(monkeypatch):
     monkeypatch.setenv("BRAINDATA_ROOT", "D:/dataset")
     monkeypatch.setenv(
         "BRAINDECODING_MODEL_ROOT", "D:/code/dascoli-word-decoding/models"
     )
     project_root = Path(__file__).resolve().parents[1]
-    baseline = load_config(project_root / "configs" / "SMN4Lang_1s.yaml")
     staged = load_config(
-        project_root / "configs" / "SMN4Lang_1s_cnn_warm_start.yaml"
+        project_root
+        / "configs/word_decoding/smn4lang/sub01-06/main_context.yaml"
     )
-
-    assert staged["training"]["freeze_brain_encoder_updates"] == 960
+    assert staged["training"]["warm_start_from"] == "main_word"
     assert staged["training"]["max_updates"] == 6400
-    assert staged["model"] == baseline["model"]
-    for section in ("dataset", "cache", "text_embedding", "loss", "evaluation"):
-        assert staged[section] == baseline[section]
+    assert "freeze_brain_encoder_updates" not in staged["training"]
 
 
 def test_pretrained_checkpoint_loads_only_brain_encoder(tmp_path):
@@ -362,14 +351,15 @@ def test_repository_gpt2_builds_train_only_word_prototypes(tmp_path):
     assert cache_path.read_bytes() == full_cache_bytes
 
 
-def test_gpt2_default_config_uses_1024_dimensions_and_compatible_heads(monkeypatch):
+def test_default_config_is_active_six_subject_context(monkeypatch):
     monkeypatch.setenv("BRAINDATA_ROOT", "D:/dataset")
-    project_root = Path(__file__).resolve().parents[1]
-    config = load_config(project_root / "configs" / "SMN4Lang_gpt2.yaml")
-    assert config["text_embedding"]["source"] == "smn4lang_repository_gpt2"
-    assert config["text_embedding"]["layer_index"] == 24
-    assert config["model"]["embedding_dimension"] == 1024
-    assert 1024 % config["model"]["transformer"]["heads"] == 0
+    monkeypatch.setenv(
+        "BRAINDECODING_MODEL_ROOT", "D:/code/dascoli-word-decoding/models"
+    )
+    config = load_config()
+    assert config["experiment"]["subject_scope"] == "sub01-06"
+    assert config["experiment"]["id"] == "main_context"
+    assert config["model"]["embedding_dimension"] == 768
 
 
 def test_script_sentences_and_sampler_keep_batches_bounded(tmp_path):

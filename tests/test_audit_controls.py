@@ -16,23 +16,23 @@ from braindecoding.evaluation.retrieval import fixed_vocabulary_retrieval_metric
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 FROZEN_PROTOCOL_FILE_SHA256 = {
-    "experiments/manifests/conditions.json": "a8b1b71402756ee51f9883d5f0d6fbd8bbdd0cf818d11ba189923d433d18212d",
-    "experiments/manifests/chineseeeg2/ovmi_support.json": "d6c93ef38445f3b36f248bb36652150cf9fd5fe9c3387f542dbe78b8933a7349",
-    "experiments/manifests/chineseeeg2/split_manifest.json": "202cc6a5b5d1fdc36437917dea5f8cfca7db9e10877e0ae7ce888c2e4b422bc9",
+    "experiments/manifests/conditions.json": "13a8d0e7b792d85541855afade5b934cb42def2ac8823a9cabe3746c3fab7050",
+    "experiments/manifests/chineseeeg2/ovmi_support.json": "bf51055e538c68257d4465cc0787a536cce2b57c8a1df61c36691d77372ff36f",
+    "experiments/manifests/chineseeeg2/split_manifest.json": "322b19d16aaa292a806ddcbba67c17d7cc71a075850dc57e4353f541091bcae5",
     "experiments/manifests/chineseeeg2/story_reference.json": "143e26604197a97da67806b72c68b70964afafbd213c7a8a8b3c4b7fc39294ed",
-    "experiments/manifests/chineseeeg2/story_reference.provenance.json": "ae8c19434af0d2326d96fb3130d9500c8be9836b3c6a28e17b919ad8b65dbb9a",
-    "experiments/manifests/chineseeeg2/vocabulary_N20.json": "c2dc3c08cc15c198f0deb8f09955ec3262498f390bf6be1742784e4071e006ce",
-    "experiments/manifests/chineseeeg2/vocabulary_N50.json": "278a75892d68242dd0bb71ef46f40ad8633b8222a185f80c19bdb68dfb3d53fb",
-    "experiments/manifests/chineseeeg2/vocabulary_N100.json": "cfc8bda263eaa56c67a9422d416ff9e79716d3ff05fa53b01f227e085262910a",
-    "experiments/manifests/chineseeeg2/vocabulary_N150.json": "15476e49a92698c3a585f40a034e51f4115eae8d0cda057fcce5cddd56d630ad",
-    "experiments/manifests/smn4lang/development_manifest_sub01.json": "79255bb8d573c0790ff02f5320c7c9c168cd68dfc289e7e9304f76341d7b49ac",
-    "experiments/manifests/smn4lang/ovmi_support.json": "3f12f4e8030ba4669103d10a6599b4ebdbb749699ee596d040ab331f18edb62c",
+    "experiments/manifests/chineseeeg2/story_reference.provenance.json": "9029e903d1401fc8647a08728929c1f33ab861946a0894b1300e15c842b1bb5d",
+    "experiments/manifests/chineseeeg2/vocabulary_N20.json": "bc3d37af058bc8c8e9c30eec287c731e6656f04b8c1a8f57e4aea16e1bf4b307",
+    "experiments/manifests/chineseeeg2/vocabulary_N50.json": "ee978eafbc036a15546bda5f6666b0d0d00dac262a96e5f4a3600f0ce8ea5484",
+    "experiments/manifests/chineseeeg2/vocabulary_N100.json": "0114918d7c70ced46bb30307f8f0bba0673b6a353100ac229c1f144ba413a273",
+    "experiments/manifests/chineseeeg2/vocabulary_N150.json": "fdad18e16d35556e488197d9c2327121782c4a87e99e6d7cdf52d8fadeacdaa1",
+    "experiments/manifests/smn4lang/development_manifest_sub01.json": "4389c31e288419f452ddab0774f7cee993210e83e663348c68c4946022a69603",
+    "experiments/manifests/smn4lang/ovmi_support.json": "9ccf79a6ddb15bde4f79d88884eda5e7c70ec09faa7b05f2d071caaa4d50a697",
     "experiments/manifests/smn4lang/story_reference.json": "c733d0bb02566ebb858e21aa5cbda1885378bf7a408a99489c34bb64e5c0d5b2",
-    "experiments/manifests/smn4lang/story_reference.provenance.json": "164c48316c8270f2b7e2ca9ce408509b5ad9d095e7e78127d1ae48ca954d360d",
-    "experiments/manifests/smn4lang/vocabulary_N20.json": "c233e23dc08d81c55113afc8d9cda5e3ebb1a2b6e39d245810e2cd0c3fc531e7",
-    "experiments/manifests/smn4lang/vocabulary_N50.json": "eae4434bbbee659ae226ada1721eddf5f0013c5bda20b58287ba8b2f6690cb72",
-    "experiments/manifests/smn4lang/vocabulary_N100.json": "e8583306dfe93e089c25766fbb71a8f654de6af4ddef162854e7156b039c4090",
-    "experiments/manifests/smn4lang/vocabulary_N150.json": "950908b6b1c2c93f10a4aa7f2b68b9219d0df84fd802ce59baa07fcea7fe926d",
+    "experiments/manifests/smn4lang/story_reference.provenance.json": "7f2bc8fc2104e738852413681e247bcafc992fff6975ac2a2606c534b0d97b15",
+    "experiments/manifests/smn4lang/vocabulary_N20.json": "a19712efdd65333433346c3780718c81a3aebb3409786cbb08460f00dadf63e0",
+    "experiments/manifests/smn4lang/vocabulary_N50.json": "f1103e2487fdccc0088dcfb8830905339cf10f0d2a55ded123cea36465c9efcf",
+    "experiments/manifests/smn4lang/vocabulary_N100.json": "83d905894249f01c6852ee0014d3f9bdcae98575121dc2c796b9b32261e42cfa",
+    "experiments/manifests/smn4lang/vocabulary_N150.json": "ccdb955567097f024a2d0f0b4b89945dc2035feebaecd40575d19e6f4646f363",
 }
 
 

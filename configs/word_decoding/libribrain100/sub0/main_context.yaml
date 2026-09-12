@@ -2,13 +2,10 @@ extends: ../base.yaml
 
 experiment:
   task: word_decoding
-  dataset: smn4lang
-  subject_scope: sub01-06
+  dataset: libribrain100
+  subject_scope: sub0
   id: main_context
   category: main
-
-training:
-  warm_start_from: main_word
 
 provenance:
   context_condition: sentence_transformer

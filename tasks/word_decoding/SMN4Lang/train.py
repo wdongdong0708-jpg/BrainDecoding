@@ -15,7 +15,14 @@ import torch
 
 TASK_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = TASK_DIR.parents[2]
-DEFAULT_CONFIG = PROJECT_ROOT / "configs" / "SMN4Lang_gpt2.yaml"
+DEFAULT_CONFIG = (
+    PROJECT_ROOT
+    / "configs"
+    / "word_decoding"
+    / "smn4lang"
+    / "sub01-06"
+    / "main_context.yaml"
+)
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 

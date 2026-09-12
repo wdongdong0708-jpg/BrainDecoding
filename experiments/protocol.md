@@ -239,9 +239,11 @@ validation 审计中，组合结构基线宏 Top-10 约 27%–28%（全支持）
 - ChineseEEG2：至少 `sub-01` 至 `sub-04` 的 test EEG 已用于 150 词曲线和混淆
   机制审计；当前 test 必须标记 `已用于探索`，不能再称盲测。八人完整 test 是否
   全部运行过不能据现有证据断言，但材料标签和部分神经数据已经暴露。
-- SMN4Lang：历史输出均记录为 validation-only，未发现 test MEG 评价文件；test
-  MEG 当前仍锁定。但本次协议审计已经读取 test 的词标签支持，因此只能称
-  “神经结果未打开”，不能称“测试标签完全盲”。
+- SMN4Lang：sub-01 至 sub-06 的全部 raw FIF（包括 test split recording）已经为
+  canonical deterministic signal materialization 读取。该访问只执行冻结的确定性
+  预处理，没有加载模型、生成 test prediction 或计算/查看 test model metric；因此
+  状态是“raw test neural data accessed for deterministic preprocessing only”，不能再称
+  `unopened`，也不能称已经进行 test model evaluation。test 词标签此前还用于支持审计。
 - checkpoint 选择当前使用 validation 固定 50 词 macro Top-10；正式协议若改变
   选择指标，必须在任何确认性 test 前完成并冻结。
 

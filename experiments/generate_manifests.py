@@ -7,31 +7,37 @@ import hashlib
 import json
 from collections import Counter
 from pathlib import Path
+import sys
 
 import pandas as pd
+
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+from braindecoding.data import chineseeeg2, smn4lang
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "experiments" / "manifests"
 DEFAULT_CHINESE_EVENT_TABLE = (
     PROJECT_ROOT
-    / "tasks"
-    / "word_decoding"
-    / "ChineseEEG2_LittlePrince"
-    / "cache"
-    / "ChineseEEG2_LittlePrince_sub01_sub08_actual_reading_1s_semantic_v1.csv"
+    / "derived"
+    / "chineseeeg2_littleprince"
+    / "events"
+    / "events.csv"
 )
 DEFAULT_SMN_EVENT_TABLE = (
     PROJECT_ROOT
-    / "tasks"
-    / "word_decoding"
-    / "SMN4Lang"
-    / "cache"
-    / "SMN4Lang_events_all_words_sentence_groups.csv"
+    / "derived"
+    / "smn4lang"
+    / "events"
+    / "events_sub01-06.csv"
 )
 PRIMARY_VOCABULARY_SIZES = (20, 50, 100, 150)
 CHINESE_SUBJECTS = tuple(f"sub-{index:02d}" for index in range(1, 9))
-SMN_EXPECTED_SUBJECTS = tuple(f"sub-{index:02d}" for index in range(1, 13))
+SMN_EXPECTED_SUBJECTS = tuple(f"sub-{index:02d}" for index in range(1, 7))
 
 
 def file_sha256(path: Path) -> str:
@@ -396,7 +402,9 @@ def _story_assets(
 def _chinese_documents(
     event_table_path: Path, generator_sha256: str
 ) -> dict[str, dict]:
-    table = _prepare_chinese(pd.read_csv(event_table_path, low_memory=False))
+    table = _prepare_chinese(
+        chineseeeg2.载入事件表(event_table_path, trainable_only=False)
+    )
     subjects = tuple(sorted(table["subject_id"].astype(str).unique()))
     if subjects != CHINESE_SUBJECTS:
         raise ValueError(
@@ -509,13 +517,21 @@ def _chinese_documents(
 
 
 def _smn_documents(event_table_path: Path, generator_sha256: str) -> dict[str, dict]:
-    table = _prepare_smn(pd.read_csv(event_table_path, low_memory=False))
-    subjects = tuple(sorted(table["subject_id"].astype(str).unique()))
-    if subjects != ("sub-01",):
+    source_table = smn4lang.load_event_table(
+        event_table_path, trainable_only=False
+    )
+    source_subjects = tuple(sorted(source_table["subject_id"].astype(str).unique()))
+    if source_subjects != SMN_EXPECTED_SUBJECTS:
         raise ValueError(
-            "SMN4Lang development 资产只允许从当前 sub-01 缓存生成；"
-            f"实际受试者为 {subjects}。"
+            "SMN4Lang canonical 事件表受试者范围不一致；"
+            f"期望 {SMN_EXPECTED_SUBJECTS}，实际 {source_subjects}。"
         )
+    # 候选词与故事 reference 的冻结单位是材料，不按受试者重复；保留最初
+    # sub-01 协议资产的统计合同，同时把来源切换为六人 canonical 事件表。
+    table = _prepare_smn(
+        source_table[source_table["subject_id"].eq("sub-01")].reset_index(drop=True)
+    )
+    subjects = tuple(sorted(table["subject_id"].astype(str).unique()))
     event_digest = file_sha256(event_table_path)
     canonical_train = canonical_words(
         table,
@@ -568,15 +584,21 @@ def _smn_documents(event_table_path: Path, generator_sha256: str) -> dict[str, d
             "event_table": _project_relative(event_table_path),
             "event_table_sha256": event_digest,
             "expected_formal_subject_order": list(SMN_EXPECTED_SUBJECTS),
-            "formal_manifest_status": "awaiting_multisubject_data",
+            "formal_manifest_status": "canonical_sub01-06_derived_complete",
             "generator": "experiments/generate_manifests.py",
             "generator_sha256": generator_sha256,
             "observed_subject_order": list(subjects),
+            "source_event_table_subject_order": list(source_subjects),
             "split_units": _split_unit_lists(table),
             "status": "development_sub01",
             "subject_order": list(subjects),
             "test_label_status": "inspected_for_support_audit",
-            "test_meg_status": "unopened",
+            "test_metrics_inspected": False,
+            "test_model_evaluation": "not_run",
+            "test_neural_data_status": (
+                "raw_accessed_for_deterministic_preprocessing_only"
+            ),
+            "test_predictions_generated": False,
             "trainable_split_units": _split_unit_lists(table, trainable_only=True),
         }
     )
@@ -586,7 +608,9 @@ def _smn_documents(event_table_path: Path, generator_sha256: str) -> dict[str, d
         vocabularies=vocabularies,
         generator_sha256=generator_sha256,
         status="development_sub01_support_audit",
-        test_status="test_meg_unopened_labels_inspected",
+        test_status=(
+            "raw_neural_data_preprocessed_no_model_evaluation_labels_inspected"
+        ),
     )
     documents = {
         "smn4lang/development_manifest_sub01.json": development_manifest,
@@ -661,10 +685,15 @@ def _conditions_document(generator_sha256: str) -> dict:
                 },
                 "SMN4Lang": {
                     "confirmatory_status": "eligible_after_multisubject_protocol_freeze",
-                    "formal_manifest_status": "awaiting_multisubject_data",
+                    "formal_manifest_status": "canonical_sub01-06_derived_complete",
                     "neural_context": "script_sentence_then_contiguous_chunks",
                     "test_label_status": "inspected_for_support_audit",
-                    "test_meg_status": "unopened",
+                    "test_metrics_inspected": False,
+                    "test_model_evaluation": "not_run",
+                    "test_neural_data_status": (
+                        "raw_accessed_for_deterministic_preprocessing_only"
+                    ),
+                    "test_predictions_generated": False,
                     "word": {"model.use_transformer": False},
                 },
             },
@@ -679,7 +708,9 @@ def _conditions_document(generator_sha256: str) -> dict:
             },
             "generator": "experiments/generate_manifests.py",
             "generator_sha256": generator_sha256,
-            "protocol_status": "machine_checkable_assets_frozen_without_test_meg_run",
+            "protocol_status": (
+                "machine_checkable_assets_frozen_without_test_model_evaluation"
+            ),
         }
     )
 

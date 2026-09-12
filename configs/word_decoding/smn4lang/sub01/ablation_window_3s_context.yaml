@@ -1,8 +1,0 @@
-extends: ../../../SMN4Lang.yaml
-
-experiment:
-  task: word_decoding
-  dataset: smn4lang
-  subject_scope: sub01
-  id: ablation_window_3s_context
-  category: ablation

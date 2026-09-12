@@ -41,27 +41,27 @@ from tasks.word_decoding.SMN4Lang import train as smn_training
 
 
 MANIFEST_ROOT = PROJECT_ROOT / "experiments" / "manifests"
-OUTPUT_ROOT = PROJECT_ROOT / "outputs" / "audits"
+OUTPUT_ROOT = PROJECT_ROOT / "reports" / "legacy" / "validation_controls"
 CHINESE_EVENT_TABLE = (
     PROJECT_ROOT
-    / "tasks/word_decoding/ChineseEEG2_LittlePrince/cache"
-    / "ChineseEEG2_LittlePrince_sub01_sub08_actual_reading_1s_semantic_v1.csv"
+    / "derived/chineseeeg2_littleprince/events/events.csv"
 )
 SMN_EVENT_TABLE = (
     PROJECT_ROOT
-    / "tasks/word_decoding/SMN4Lang/cache"
-    / "SMN4Lang_events_all_words_1s_fixed_3s_support.csv"
+    / "derived/smn4lang/events/events_sub01-06.csv"
 )
 CONFIGS = {
     "ChineseEEG2": {
         "word": PROJECT_ROOT
-        / "configs/ChineseEEG2_LittlePrince_sub01_sub08_actual_reading_1s_cnn_only.yaml",
+        / "configs/word_decoding/chineseeeg2_littleprince/sub01-08/main_word.yaml",
         "neural_context": PROJECT_ROOT
-        / "configs/ChineseEEG2_LittlePrince_sub01_sub08_actual_reading_1s_semantic_cnn_warm_start.yaml",
+        / "configs/word_decoding/chineseeeg2_littleprince/sub01-08/main_context.yaml",
     },
     "SMN4Lang": {
-        "word": PROJECT_ROOT / "configs/SMN4Lang_1s_conv_only.yaml",
-        "neural_context": PROJECT_ROOT / "configs/SMN4Lang_1s.yaml",
+        "word": PROJECT_ROOT
+        / "configs/word_decoding/smn4lang/sub01-06/main_word.yaml",
+        "neural_context": PROJECT_ROOT
+        / "configs/word_decoding/smn4lang/sub01-06/main_context.yaml",
     },
 }
 
@@ -254,7 +254,7 @@ def _load_smn(model_condition: str, device, dataset_root: Path | None):
         "model": model,
         "relocated_validation_caches": relocated_caches,
         "signal_key": "meg",
-        "subject_scope": "development_sub01",
+        "subject_scope": "sub01-06",
         "table": table,
     }
 
@@ -379,7 +379,7 @@ def _run_model(
             "control_event_table_sha256": mapping["event_table_sha256"],
             "control_mapping_sha256": mapping["mapping_sha256"],
             "dataset": dataset,
-            "development_only": dataset == "SMN4Lang",
+            "development_only": False,
             "event_table": str(bundle["event_path"].resolve()),
             "event_table_sha256": file_sha256(bundle["event_path"]),
             "feature_cache": feature_cache,
@@ -391,7 +391,7 @@ def _run_model(
             "seed": seed,
             "seeds": list(DONOR_SEEDS) if seed is None else None,
             "split": "val",
-            "status": "development_only" if dataset == "SMN4Lang" else "validation_only",
+            "status": "validation_only",
             "subject_scope": bundle["subject_scope"],
             "test_eeg_opened": False,
             "test_meg_opened": False,
@@ -413,7 +413,7 @@ def _run_model(
         "clean_existing_evaluate_equivalence": clean_equivalence,
         "control_results": result_paths,
         "dataset": dataset,
-        "development_only": dataset == "SMN4Lang",
+        "development_only": False,
         "feature_cache": feature_cache,
         "feature_direct_forward_equivalence": feature_equivalence,
         "relocated_validation_caches": bundle.get("relocated_validation_caches", {}),
@@ -443,13 +443,17 @@ def run_dataset(
     dataset_key = dataset.lower()
     event_path = CHINESE_EVENT_TABLE if dataset == "ChineseEEG2" else SMN_EVENT_TABLE
     event_sha = file_sha256(event_path)
-    table = pd.read_csv(event_path, low_memory=False)
+    table = (
+        chineseeeg2.载入事件表(event_path, trainable_only=False)
+        if dataset == "ChineseEEG2"
+        else smn4lang.load_event_table(event_path, trainable_only=False)
+    )
     mappings = build_control_assets(
         table,
         dataset=dataset,
         event_table_sha256=event_sha,
         split="val",
-        status="validation_only" if dataset == "ChineseEEG2" else "development_only",
+        status="validation_only",
     )
     output_root = OUTPUT_ROOT / dataset_key / "validation"
     write_control_assets(mappings, output_root / "mappings")
@@ -457,13 +461,13 @@ def run_dataset(
     result = {
         "core_query_count": core["query_count"],
         "dataset": dataset,
-        "development_only": dataset == "SMN4Lang",
+        "development_only": False,
         "donor_eligible_count": core["donor_eligible_count"],
         "event_table_sha256": event_sha,
         "mapping_directory": str((output_root / "mappings").resolve()),
         "models": {},
         "split": "val",
-        "status": "validation_only" if dataset == "ChineseEEG2" else "development_only",
+        "status": "validation_only",
         "temporal_eligible_count": core["temporal_eligible_count"],
         "test_neural_data_opened": False,
     }

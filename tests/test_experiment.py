@@ -16,6 +16,7 @@ from braindecoding.experiment import (
     resolve_experiment_config,
     resolved_config_sha256,
     run_directory,
+    scientific_config_sha256,
     update_run_status,
     warm_start_checkpoint,
 )
@@ -25,89 +26,27 @@ CANONICAL_ROOTS = (
     PROJECT_ROOT / "configs" / "word_decoding",
     PROJECT_ROOT / "configs" / "sequence_decoding",
 )
-CANONICAL_TO_LEGACY = {
-    "word_decoding/chineseeeg2_littleprince/sub01-08/main_word.yaml":
-        "ChineseEEG2_LittlePrince_sub01_sub08_actual_reading_1s_cnn_only.yaml",
-    "word_decoding/chineseeeg2_littleprince/sub01-08/main_context.yaml":
-        "ChineseEEG2_LittlePrince_sub01_sub08_actual_reading_1s_semantic_cnn_warm_start.yaml",
-    "word_decoding/chineseeeg2_littleprince/sub01-08/ablation_context_row.yaml":
-        "ChineseEEG2_LittlePrince_sub01_sub08_actual_reading_1s_cnn_warm_start.yaml",
-    "word_decoding/chineseeeg2_littleprince/sub01-08/ablation_context_scratch.yaml":
-        "ChineseEEG2_LittlePrince_sub01_sub08_actual_reading_1s.yaml",
-    "word_decoding/chineseeeg2_littleprince/sub01/scaling_word.yaml":
-        "ChineseEEG2_LittlePrince_sub01_actual_reading_1s_cnn_only.yaml",
-    "word_decoding/chineseeeg2_littleprince/sub01/scaling_context_row.yaml":
-        "ChineseEEG2_LittlePrince_sub01_actual_reading_1s_cnn_warm_start.yaml",
-    "word_decoding/chineseeeg2_littleprince/sub01/ablation_context_scratch.yaml":
-        "ChineseEEG2_LittlePrince_sub01_actual_reading_1s.yaml",
-    "word_decoding/chineseeeg2_littleprince/sub01-02/scaling_word.yaml":
-        "ChineseEEG2_LittlePrince_sub01_sub02_actual_reading_1s_cnn_only.yaml",
-    "word_decoding/chineseeeg2_littleprince/sub01-02/scaling_context_row.yaml":
-        "ChineseEEG2_LittlePrince_sub01_sub02_actual_reading_1s_cnn_warm_start.yaml",
-    "word_decoding/chineseeeg2_littleprince/sub01-02/ablation_context_scratch.yaml":
-        "ChineseEEG2_LittlePrince_sub01_sub02_actual_reading_1s.yaml",
-    "word_decoding/chineseeeg2_littleprince/sub01-04/scaling_word.yaml":
-        "ChineseEEG2_LittlePrince_sub01_sub04_actual_reading_1s_cnn_only.yaml",
-    "word_decoding/chineseeeg2_littleprince/sub01-04/scaling_context_row.yaml":
-        "ChineseEEG2_LittlePrince_sub01_sub04_actual_reading_1s_cnn_warm_start.yaml",
-    "word_decoding/chineseeeg2_littleprince/sub01-04/ablation_context_scratch.yaml":
-        "ChineseEEG2_LittlePrince_sub01_sub04_actual_reading_1s.yaml",
-    "word_decoding/chineseeeg2_littleprince/sub05-08/scaling_word.yaml":
-        "ChineseEEG2_LittlePrince_sub05_sub08_actual_reading_1s_cnn_only.yaml",
-    "word_decoding/chineseeeg2_littleprince/sub05-08/scaling_context_row.yaml":
-        "ChineseEEG2_LittlePrince_sub05_sub08_actual_reading_1s_cnn_warm_start.yaml",
-    "word_decoding/chineseeeg2_littleprince/sub05-08/ablation_context_scratch.yaml":
-        "ChineseEEG2_LittlePrince_sub05_sub08_actual_reading_1s.yaml",
-    "word_decoding/smn4lang/sub01/dev_word.yaml":
-        "SMN4Lang_1s_conv_only.yaml",
-    "word_decoding/smn4lang/sub01/dev_context.yaml": "SMN4Lang_1s.yaml",
-    "word_decoding/smn4lang/sub01/ablation_context_warm_start.yaml":
-        "SMN4Lang_1s_cnn_warm_start.yaml",
-    "word_decoding/smn4lang/sub01/ablation_context_singleton.yaml":
-        "SMN4Lang_1s_single_word_transformer.yaml",
-    "word_decoding/smn4lang/sub01/ablation_window_3s_word.yaml":
-        "SMN4Lang_conv_only.yaml",
-    "word_decoding/smn4lang/sub01/ablation_window_3s_context.yaml":
-        "SMN4Lang.yaml",
-    "word_decoding/smn4lang/sub01/ablation_window_3s_singleton.yaml":
-        "SMN4Lang_3s_single_word_transformer.yaml",
-    "word_decoding/smn4lang/sub01/ablation_text_gpt2_word.yaml":
-        "SMN4Lang_gpt2_conv_only.yaml",
-    "word_decoding/smn4lang/sub01/ablation_text_gpt2_context.yaml":
-        "SMN4Lang_gpt2.yaml",
-    "word_decoding/libribrain100/sub0/historical_word_1s.yaml":
-        "LibriBrain100_1s_conv_only.yaml",
-    "word_decoding/libribrain100/sub0/historical_grouped_1s.yaml":
-        "LibriBrain100_1s.yaml",
-    "word_decoding/libribrain100/sub0/historical_grouped_3s.yaml":
-        "LibriBrain100.yaml",
-    "word_decoding/libribrain100/sub0/historical_grouped_warm_start_1s.yaml":
-        "LibriBrain100_1s_cnn_warm_start.yaml",
-    "word_decoding/libribrain100/sub0/historical_singleton_1s.yaml":
-        "LibriBrain100_1s_single_word_transformer.yaml",
-    "word_decoding/libribrain100/sub0/historical_singleton_3s.yaml":
-        "LibriBrain100_3s_single_word_transformer.yaml",
-    "sequence_decoding/chineseeeg1_sr/sub04-10_sub13-14/historical_row_retrieval_fourier_subject.yaml":
-        "ChineseEEG_SR.yaml",
-    "sequence_decoding/chineseeeg1_sr/sub04-10_sub13-14/historical_closed_set_loso.yaml":
-        "ChineseEEG_SR.yaml",
+CANONICAL_FILES = (
+    "word_decoding/chineseeeg2_littleprince/sub01-08/main_word.yaml",
+    "word_decoding/chineseeeg2_littleprince/sub01-08/main_context.yaml",
+    "word_decoding/smn4lang/sub01-06/main_word.yaml",
+    "word_decoding/smn4lang/sub01-06/main_context.yaml",
+    "word_decoding/libribrain100/sub0/main_word.yaml",
+    "word_decoding/libribrain100/sub0/main_context.yaml",
+    "sequence_decoding/chineseeeg1_sr/sub04-10_sub13-14/historical_row_retrieval_fourier_subject.yaml",
+    "sequence_decoding/chineseeeg1_sr/sub04-10_sub13-14/historical_closed_set_loso.yaml",
+)
+ACTIVE_SCIENTIFIC_SHA256 = {
+    "word_decoding/chineseeeg2_littleprince/sub01-08/main_word.yaml": "3117f60305b0aa6de8dd930e896ab9fa3ab26829acbab28a3cdb89e9f863573e",
+    "word_decoding/chineseeeg2_littleprince/sub01-08/main_context.yaml": "3951b8a5d1936265da3d506ada1e74aeb5e2a34ae4466a4cb6fbdf70150d6387",
+    "word_decoding/smn4lang/sub01-06/main_word.yaml": "40fba01a86059b0b1299498b0bbff50aca2b8b0080995936604afbf84103ca1a",
+    "word_decoding/smn4lang/sub01-06/main_context.yaml": "91cb836820b6d1e49077396f19eea013f703c20e2ee0b68d62f5501b3677a9d2",
+    "word_decoding/libribrain100/sub0/main_word.yaml": "af6c317dcc0b8e697504d69f887765762bf20394f7f1f7786470dfc6de951617",
+    "word_decoding/libribrain100/sub0/main_context.yaml": "bd27d21f8a7ea54c380483a019596223eee5144625a927322319bdd0e6d62385",
 }
 WARM_STARTS = {
-    "word_decoding/chineseeeg2_littleprince/sub01-08/main_context.yaml":
-        "main_word",
-    "word_decoding/chineseeeg2_littleprince/sub01-08/ablation_context_row.yaml":
-        "main_word",
-    "word_decoding/chineseeeg2_littleprince/sub01/scaling_context_row.yaml":
-        "scaling_word",
-    "word_decoding/chineseeeg2_littleprince/sub01-02/scaling_context_row.yaml":
-        "scaling_word",
-    "word_decoding/chineseeeg2_littleprince/sub01-04/scaling_context_row.yaml":
-        "scaling_word",
-    "word_decoding/chineseeeg2_littleprince/sub05-08/scaling_context_row.yaml":
-        "scaling_word",
-    "word_decoding/smn4lang/sub01/ablation_context_warm_start.yaml": "dev_word",
-    "word_decoding/libribrain100/sub0/historical_grouped_warm_start_1s.yaml":
-        "historical_word_1s",
+    "word_decoding/chineseeeg2_littleprince/sub01-08/main_context.yaml": "main_word",
+    "word_decoding/smn4lang/sub01-06/main_context.yaml": "main_word",
 }
 ARCHIVE_ONLY_OUTPUTS = (
     "outputs/ChineseEEG1_SR/LittlePrince_row_retrieval",
@@ -129,7 +68,7 @@ def _canonical_path(relative):
 
 
 def _canonical_files():
-    return tuple(_canonical_path(relative) for relative in CANONICAL_TO_LEGACY)
+    return tuple(_canonical_path(relative) for relative in CANONICAL_FILES)
 
 
 def _without_identity_and_paths(config):
@@ -153,7 +92,7 @@ def _science_signature(config):
 
 
 def test_canonical_inventory_and_identity_are_complete_and_unique():
-    assert len(CANONICAL_TO_LEGACY) == 33
+    assert len(CANONICAL_FILES) == 8
     identities = []
     for path in _canonical_files():
         config = load_yaml_with_extends(path)
@@ -196,13 +135,12 @@ def test_output_paths_are_derived_from_identity_without_collisions():
     assert len(paths) == len(set(paths))
 
 
-@pytest.mark.parametrize("canonical,legacy", CANONICAL_TO_LEGACY.items())
-def test_canonical_scientific_config_equals_legacy(canonical, legacy):
-    current = load_yaml_with_extends(_canonical_path(canonical))
-    previous = load_yaml_with_extends(PROJECT_ROOT / "configs" / legacy)
-    assert _without_identity_and_paths(current) == _without_identity_and_paths(
-        previous
+@pytest.mark.parametrize("canonical,expected", ACTIVE_SCIENTIFIC_SHA256.items())
+def test_active_scientific_config_matches_pre_cleanup_contract(canonical, expected):
+    current = resolve_experiment_config(
+        load_yaml_with_extends(_canonical_path(canonical))
     )
+    assert scientific_config_sha256(current) == expected
 
 
 def test_no_two_canonical_configs_have_the_same_scientific_role():
@@ -396,15 +334,9 @@ def test_task_loaders_inject_canonical_output_and_warm_start_paths():
         ),
         (
             load_smn4lang,
-            "word_decoding/smn4lang/sub01/ablation_context_warm_start.yaml",
-            "word_decoding/smn4lang/sub01/ablation_context_warm_start/seed-000",
-            "word_decoding/smn4lang/sub01/dev_word/seed-000/best.pt",
-        ),
-        (
-            load_libribrain,
-            "word_decoding/libribrain100/sub0/historical_grouped_warm_start_1s.yaml",
-            "word_decoding/libribrain100/sub0/historical_grouped_warm_start_1s/seed-000",
-            "word_decoding/libribrain100/sub0/historical_word_1s/seed-000/best.pt",
+            "word_decoding/smn4lang/sub01-06/main_context.yaml",
+            "word_decoding/smn4lang/sub01-06/main_context/seed-000",
+            "word_decoding/smn4lang/sub01-06/main_word/seed-000/best.pt",
         ),
     )
     for loader, relative, output_suffix, checkpoint_suffix in cases:
@@ -413,6 +345,16 @@ def test_task_loaders_inject_canonical_output_and_warm_start_paths():
         assert Path(config["training"]["pretrained_brain_encoder_checkpoint"]) == (
             PROJECT_ROOT / "outputs" / checkpoint_suffix
         )
+
+    libribrain = load_libribrain(
+        PROJECT_ROOT
+        / "configs/word_decoding/libribrain100/sub0/main_context.yaml"
+    )
+    assert Path(libribrain["training"]["output_dir"]) == (
+        PROJECT_ROOT
+        / "outputs/word_decoding/libribrain100/sub0/main_context/seed-000"
+    )
+    assert "pretrained_brain_encoder_checkpoint" not in libribrain["training"]
 
     sequence = load_sequence(
         PROJECT_ROOT

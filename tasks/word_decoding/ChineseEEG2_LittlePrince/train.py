@@ -19,7 +19,10 @@ PROJECT_ROOT = TASK_DIR.parents[2]
 DEFAULT_CONFIG = (
     PROJECT_ROOT
     / "configs"
-    / "ChineseEEG2_LittlePrince_sub01_actual_reading_1s_cnn_warm_start.yaml"
+    / "word_decoding"
+    / "chineseeeg2_littleprince"
+    / "sub01-08"
+    / "main_context.yaml"
 )
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))

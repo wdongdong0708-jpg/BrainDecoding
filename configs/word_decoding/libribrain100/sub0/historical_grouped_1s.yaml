@@ -1,8 +1,0 @@
-extends: ../../../LibriBrain100_1s.yaml
-
-experiment:
-  task: word_decoding
-  dataset: libribrain100
-  subject_scope: sub0
-  id: historical_grouped_1s
-  category: historical_diagnostic

@@ -22,20 +22,22 @@ def test_word_cleanup_matches_source_contract():
     assert normalize_word("co-operate") == "co-operate"
 
 
-def test_cnn_warm_start_config_only_changes_training_stage(monkeypatch):
+def test_active_word_and_context_configs_share_scientific_data_contract(monkeypatch):
     monkeypatch.setenv("BRAINDATA_ROOT", "D:/dataset")
-    base = load_config("configs/LibriBrain100_1s.yaml")
-    warm = load_config("configs/LibriBrain100_1s_cnn_warm_start.yaml")
-    assert warm["dataset"] == base["dataset"]
-    assert warm["cache"] == base["cache"]
-    assert warm["text_embedding"] == base["text_embedding"]
-    assert warm["model"] == base["model"]
-    assert warm["loss"] == base["loss"]
-    assert warm["evaluation"] == base["evaluation"]
-    assert warm["training"]["freeze_brain_encoder_epochs"] == 1
-    assert warm["training"]["pretrained_brain_encoder_checkpoint"].endswith(
-        "word_decoding_1s_conv_only\\best.pt"
+    word = load_config(
+        "configs/word_decoding/libribrain100/sub0/main_word.yaml"
     )
+    context = load_config(
+        "configs/word_decoding/libribrain100/sub0/main_context.yaml"
+    )
+    assert context["dataset"] == word["dataset"]
+    assert context["cache"] == word["cache"]
+    assert context["text_embedding"] == word["text_embedding"]
+    assert context["loss"] == word["loss"]
+    assert context["evaluation"] == word["evaluation"]
+    assert word["model"]["use_transformer"] is False
+    assert context["model"]["use_transformer"] is True
+    assert "pretrained_brain_encoder_checkpoint" not in context["training"]
 
 
 def test_recording_materialization(tmp_path):

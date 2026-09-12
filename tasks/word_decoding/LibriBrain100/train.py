@@ -14,7 +14,14 @@ import torch
 
 TASK_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = TASK_DIR.parents[2]
-DEFAULT_CONFIG = PROJECT_ROOT / "configs" / "LibriBrain100.yaml"
+DEFAULT_CONFIG = (
+    PROJECT_ROOT
+    / "configs"
+    / "word_decoding"
+    / "libribrain100"
+    / "sub0"
+    / "main_context.yaml"
+)
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))

@@ -137,9 +137,12 @@ def test_subject_order_and_multisubject_status_are_explicit():
 
     assert smn["subject_order"] == ["sub-01"]
     assert smn["status"] == "development_sub01"
-    assert smn["formal_manifest_status"] == "awaiting_multisubject_data"
+    assert smn["formal_manifest_status"] == "canonical_sub01-06_derived_complete"
+    assert smn["source_event_table_subject_order"] == [
+        f"sub-{index:02d}" for index in range(1, 7)
+    ]
     assert smn["expected_formal_subject_order"] == [
-        f"sub-{index:02d}" for index in range(1, 13)
+        f"sub-{index:02d}" for index in range(1, 7)
     ]
 
 
@@ -203,9 +206,15 @@ def test_formal_context_and_test_history_are_machine_readable():
     smn = conditions["datasets"]["SMN4Lang"]
     assert smn["word"]["model.use_transformer"] is False
     assert smn["neural_context"] == "script_sentence_then_contiguous_chunks"
-    assert smn["test_meg_status"] == "unopened"
+    assert (
+        smn["test_neural_data_status"]
+        == "raw_accessed_for_deterministic_preprocessing_only"
+    )
+    assert smn["test_model_evaluation"] == "not_run"
+    assert smn["test_predictions_generated"] is False
+    assert smn["test_metrics_inspected"] is False
     assert smn["test_label_status"] == "inspected_for_support_audit"
-    assert smn["formal_manifest_status"] == "awaiting_multisubject_data"
+    assert smn["formal_manifest_status"] == "canonical_sub01-06_derived_complete"
 
 
 def test_primary_sizes_and_control_protocols_are_frozen_without_implementation():

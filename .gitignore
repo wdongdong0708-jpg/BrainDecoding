@@ -7,7 +7,14 @@ derived/*
 *.csv
 *.json
 !experiments/legacy_results_manifest.json
+!experiments/cleanup_manifest.json
 !experiments/manifests/artifacts.json
+archive/
+reports/legacy/*
+!reports/legacy/README.md
+!reports/legacy/chineseeeg2_legacy_metrics.json
+!reports/legacy/smn4lang_legacy_metrics.json
+!reports/legacy/libribrain100_legacy_metrics.json
 
 __pycache__/
 *.py[cod]

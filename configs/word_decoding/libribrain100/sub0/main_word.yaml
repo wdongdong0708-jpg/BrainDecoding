@@ -2,8 +2,8 @@ extends: ../base.yaml
 
 experiment:
   task: word_decoding
-  dataset: chineseeeg2_littleprince
-  subject_scope: sub01-08
+  dataset: libribrain100
+  subject_scope: sub0
   id: main_word
   category: main
 
@@ -11,4 +11,4 @@ model:
   use_transformer: false
 
 provenance:
-  context_condition: cnn_only
+  context_condition: conv_only

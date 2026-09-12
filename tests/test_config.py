@@ -27,7 +27,7 @@ TRAIN_ENTRY_PATHS = (
 )
 DATASET_ROOT_CONFIGS = (
     (
-        "configs/ChineseEEG2_LittlePrince.yaml",
+        "configs/word_decoding/chineseeeg2_littleprince/base.yaml",
         "${BRAINDATA_ROOT}/ChineseEEG-2/PassiveListening",
         "D:/dataset/ChineseEEG-2/PassiveListening",
     ),
@@ -37,51 +37,31 @@ DATASET_ROOT_CONFIGS = (
         "D:/dataset/ChineseEEG",
     ),
     (
-        "configs/LibriBrain100.yaml",
+        "configs/word_decoding/libribrain100/base.yaml",
         "${BRAINDATA_ROOT}/LibriBrain100",
         "D:/dataset/LibriBrain100",
     ),
     (
-        "configs/SMN4Lang.yaml",
-        "${BRAINDATA_ROOT}/ds004078",
-        "D:/dataset/ds004078",
-    ),
-    (
-        "configs/SMN4Lang_gpt2.yaml",
-        "${BRAINDATA_ROOT}/ds004078",
-        "D:/dataset/ds004078",
+        "configs/word_decoding/smn4lang/base.yaml",
+        "${BRAINDATA_ROOT}/SMN4Lang",
+        "D:/dataset/SMN4Lang",
     ),
 )
 MODEL_ROOT_CONFIGS = (
     (
-        "configs/ChineseEEG2_LittlePrince.yaml",
+        "configs/word_decoding/chineseeeg2_littleprince/base.yaml",
         "${BRAINDECODING_MODEL_ROOT}/mengzi-t5-base",
         "D:/code/dascoli-word-decoding/models/mengzi-t5-base",
     ),
     (
-        "configs/SMN4Lang.yaml",
+        "configs/word_decoding/smn4lang/base.yaml",
         "${BRAINDECODING_MODEL_ROOT}/mengzi-t5-base",
         "D:/code/dascoli-word-decoding/models/mengzi-t5-base",
     ),
 )
 ALIGNMENT_CONFIGS = (
     (
-        "configs/ChineseEEG2_LittlePrince.yaml",
-        "artifacts/alignments/chineseeeg2_littleprince/f1/女声一_小王子_实际朗读时间戳.xlsx",
-        (),
-    ),
-    (
-        "configs/ChineseEEG2_LittlePrince_sub01_actual_reading_1s.yaml",
-        "artifacts/alignments/chineseeeg2_littleprince/f1/女声一_小王子_实际朗读时间戳.xlsx",
-        (),
-    ),
-    (
-        "configs/ChineseEEG2_LittlePrince_sub05_sub08_actual_reading_1s.yaml",
-        "artifacts/alignments/chineseeeg2_littleprince/m1/男声一_小王子_实际朗读时间戳.xlsx",
-        (),
-    ),
-    (
-        "configs/ChineseEEG2_LittlePrince_sub01_sub08_actual_reading_1s.yaml",
+        "configs/word_decoding/chineseeeg2_littleprince/sub01-08/main_word.yaml",
         "artifacts/alignments/chineseeeg2_littleprince/f1/女声一_小王子_实际朗读时间戳.xlsx",
         (
             "artifacts/alignments/chineseeeg2_littleprince/f1/女声一_小王子_实际朗读时间戳.xlsx",
@@ -89,7 +69,6 @@ ALIGNMENT_CONFIGS = (
         ),
     ),
 )
-
 
 def _legacy_project_path(value):
     """保留迁移前的项目相对路径语义，作为等价性参照。"""
@@ -292,7 +271,9 @@ def test_real_dataset_config_requires_braindata_root(monkeypatch):
     )
     monkeypatch.delenv("BRAINDATA_ROOT", raising=False)
     with pytest.raises(ValueError, match="未设置的环境变量：BRAINDATA_ROOT"):
-        load_yaml_with_extends(PROJECT_ROOT / "configs/LibriBrain100.yaml")
+        load_yaml_with_extends(
+            PROJECT_ROOT / "configs/word_decoding/libribrain100/base.yaml"
+        )
 
 
 @pytest.mark.parametrize(
@@ -332,7 +313,8 @@ def test_real_text_model_config_requires_model_root(monkeypatch):
         match="未设置的环境变量：BRAINDECODING_MODEL_ROOT",
     ):
         load_yaml_with_extends(
-            PROJECT_ROOT / "configs/ChineseEEG2_LittlePrince.yaml"
+            PROJECT_ROOT
+            / "configs/word_decoding/chineseeeg2_littleprince/base.yaml"
         )
 
 
@@ -363,7 +345,7 @@ def test_alignment_paths_are_project_relative_and_resolve_from_any_cwd(
 
 
 def test_tracked_configs_do_not_contain_author_machine_drive_paths():
-    for path in (PROJECT_ROOT / "configs").glob("*.yaml"):
+    for path in (PROJECT_ROOT / "configs").rglob("*.yaml"):
         assert "D:/" not in path.read_text(encoding="utf-8"), path
 
 
@@ -401,69 +383,21 @@ def test_training_entries_use_shared_config_primitives():
         assert {"load_yaml_with_extends", "project_path"} <= shared_imports
 
 
-@pytest.mark.parametrize(
-    (
-        "relative_path",
-        "loader",
-        "cache_path_keys",
-        "resolve_layout",
-        "legacy_dataset_root",
-    ),
-    [
-        (
-            "configs/LibriBrain100_1s_cnn_warm_start.yaml",
-            load_libribrain_config,
-            ("event_table", "meg_dir", "text_embeddings"),
-            True,
-            "D:/dataset/LibriBrain100",
-        ),
-        (
-            "configs/SMN4Lang_1s_cnn_warm_start.yaml",
-            load_smn4lang_config,
-            ("event_table", "meg_dir", "text_embeddings"),
-            True,
-            "D:/dataset/ds004078",
-        ),
-        (
-            "configs/ChineseEEG2_LittlePrince_sub01_sub08_actual_reading_1s_cnn_warm_start.yaml",
-            载入配置,
-            ("event_table", "eeg_dir", "text_embeddings"),
-            False,
-            "D:/dataset/ChineseEEG-2/PassiveListening",
-        ),
-    ],
-)
-def test_real_config_matches_legacy_expansion(
-    relative_path,
-    loader,
-    cache_path_keys,
-    resolve_layout,
-    legacy_dataset_root,
-    monkeypatch,
-):
-    """三类真实配置的完整展开对象必须与迁移前逐项相同。"""
+def test_active_word_configs_have_only_canonical_inheritance_and_data_paths(monkeypatch):
     monkeypatch.setenv("BRAINDATA_ROOT", "D:/dataset")
     monkeypatch.setenv(
         "BRAINDECODING_MODEL_ROOT", "D:/code/dascoli-word-decoding/models"
     )
-    expected = _legacy_load_config(
-        relative_path, cache_path_keys, resolve_layout=resolve_layout
-    )
-    expected["dataset"]["root"] = legacy_dataset_root
-    configured_model = expected.get("text_embedding", {}).get("model_name")
-    if configured_model == "${BRAINDECODING_MODEL_ROOT}/mengzi-t5-base":
-        expected["text_embedding"]["model_name"] = (
-            "D:/code/dascoli-word-decoding/models/mengzi-t5-base"
-        )
-    alignment_path = expected["dataset"].get("alignment_path")
-    if alignment_path:
-        expected["dataset"]["alignment_path"] = str(
-            _legacy_project_path(alignment_path)
-        )
-    for source in expected["dataset"].get("actual_reading_sources", ()):
-        source["alignment_path"] = str(
-            _legacy_project_path(source["alignment_path"])
-        )
-    actual = loader(relative_path)
-    assert Path(actual["dataset"]["root"]) == Path(legacy_dataset_root)
-    assert actual == expected
+    configs = sorted((PROJECT_ROOT / "configs/word_decoding").rglob("*.yaml"))
+    assert len(configs) == 9
+    for path in configs:
+        raw = path.read_text(encoding="utf-8")
+        assert "tasks/word_decoding/" not in raw
+        if path.name != "base.yaml":
+            assert raw.splitlines()[0] == "extends: ../base.yaml"
+        loaded = load_yaml_with_extends(path)
+        if path.name != "base.yaml":
+            assert all(
+                str(value).replace("\\", "/").startswith("derived/")
+                for value in loaded["cache"].values()
+            )

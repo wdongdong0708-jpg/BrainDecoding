@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
-from pandas.testing import assert_frame_equal
 
 from braindecoding.config import load_yaml_with_extends
 from braindecoding.data import chineseeeg2, libribrain, smn4lang
@@ -157,14 +156,13 @@ def test_all_canonical_word_configs_resolve_to_derived(monkeypatch):
     assert runnable
 
 
-def test_legacy_configs_keep_task_local_cache(monkeypatch):
-    monkeypatch.setenv("BRAINDATA_ROOT", "D:/dataset")
-    monkeypatch.setenv(
-        "BRAINDECODING_MODEL_ROOT", "D:/code/dascoli-word-decoding/models"
-    )
+def test_removed_word_configs_and_task_local_caches_are_absent():
     root = Path(__file__).resolve().parents[1]
-    config = load_yaml_with_extends(root / "configs/SMN4Lang_1s.yaml")
-    assert config["cache"]["event_table"].startswith("tasks/word_decoding/")
+    assert not list((root / "configs").glob("ChineseEEG2_LittlePrince*.yaml"))
+    assert not list((root / "configs").glob("SMN4Lang*.yaml"))
+    assert not list((root / "configs").glob("LibriBrain100*.yaml"))
+    for task in ("ChineseEEG2_LittlePrince", "SMN4Lang", "LibriBrain100"):
+        assert not (root / "tasks" / "word_decoding" / task / "cache").exists()
 
 
 def test_smn4lang_six_subject_main_configs_are_explicit(monkeypatch):
@@ -216,44 +214,26 @@ def _require_local_products(*paths):
         pytest.skip(f"本机尚未物化 integration 数据：{missing}")
 
 
-def test_local_chineseeeg2_event_product_matches_formal_eight_subject_cache():
+def test_local_chineseeeg2_event_product_is_complete_and_loadable():
     root = Path(__file__).resolve().parents[1]
-    legacy_path = root / (
-        "tasks/word_decoding/ChineseEEG2_LittlePrince/cache/"
-        "ChineseEEG2_LittlePrince_sub01_sub08_actual_reading_1s_semantic_v1.csv"
-    )
     canonical_path = root / "derived/chineseeeg2_littleprince/events/events.csv"
-    _require_local_products(legacy_path, canonical_path)
-    legacy = pd.read_csv(legacy_path, low_memory=False)
+    _require_local_products(canonical_path)
+    manifest = validate_event_product(canonical_path)
     restored = chineseeeg2.载入事件表(canonical_path, trainable_only=False)
-    assert_frame_equal(
-        legacy.reset_index(drop=True),
-        restored.loc[:, legacy.columns].reset_index(drop=True),
-        check_dtype=False,
-        check_exact=True,
-    )
+    assert len(restored) == manifest["event_count"]
+    assert manifest["subjects"] == [f"sub-{index:02d}" for index in range(1, 9)]
+    assert restored["event_id"].tolist() == restored["事件编号"].tolist()
+    assert restored["split"].tolist() == restored["数据划分"].tolist()
 
 
-def test_local_smn4lang_six_subject_product_preserves_sub01_and_material_text():
+def test_local_smn4lang_six_subject_product_is_complete_and_consistent():
     root = Path(__file__).resolve().parents[1]
-    legacy_path = root / (
-        "tasks/word_decoding/SMN4Lang/cache/"
-        "SMN4Lang_events_all_words_1s_fixed_3s_support.csv"
-    )
     canonical_path = root / "derived/smn4lang/events/events_sub01-06.csv"
     manifest_path = canonical_path.parent / "manifest_sub01-06.json"
-    _require_local_products(legacy_path, canonical_path, manifest_path)
-    legacy = pd.read_csv(legacy_path, low_memory=False)
-    restored = smn4lang.load_event_table(
-        canonical_path, trainable_only=False, subjects=["sub-01"]
-    )
-    assert_frame_equal(
-        legacy.reset_index(drop=True),
-        restored.loc[:, legacy.columns].reset_index(drop=True),
-        check_dtype=False,
-        check_exact=True,
-    )
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    _require_local_products(canonical_path, manifest_path)
+    manifest = validate_event_product(canonical_path, manifest_path)
+    restored = smn4lang.load_event_table(canonical_path, trainable_only=False)
+    assert len(restored) == manifest["event_count"]
     completeness = manifest["audit"]["six_subject_raw_completeness"]
     assert manifest["subjects"] == [f"sub-{index:02d}" for index in range(1, 7)]
     assert set(completeness["recordings_by_subject"].values()) == {60}
@@ -264,22 +244,15 @@ def test_local_smn4lang_six_subject_product_preserves_sub01_and_material_text():
     ] is True
 
 
-def test_local_libribrain_event_product_is_exactly_rebuildable():
+def test_local_libribrain_event_product_is_complete_and_loadable():
     root = Path(__file__).resolve().parents[1]
-    legacy_path = root / (
-        "tasks/word_decoding/LibriBrain100/cache/"
-        "LibriBrain100_events_1s_fixed_3s_support.csv"
-    )
     canonical_path = root / "derived/libribrain100/events/events.csv"
-    _require_local_products(legacy_path, canonical_path)
-    legacy = pd.read_csv(legacy_path, low_memory=False)
+    _require_local_products(canonical_path)
+    manifest = validate_event_product(canonical_path)
     restored = libribrain.load_event_table(canonical_path, trainable_only=False)
-    assert_frame_equal(
-        legacy.reset_index(drop=True),
-        restored.loc[:, legacy.columns].reset_index(drop=True),
-        check_dtype=False,
-        check_exact=True,
-    )
+    assert len(restored) == manifest["event_count"]
+    assert manifest["subjects"] == ["sub-0"]
+    assert restored["event_id"].tolist() == restored["事件编号"].tolist()
 
 
 def test_derived_tree_contains_no_model_checkpoint():

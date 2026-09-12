@@ -1,9 +1,0 @@
-extends: LibriBrain100_1s.yaml
-
-training:
-  pretrained_brain_encoder_checkpoint: outputs/LibriBrain100/word_decoding_1s_conv_only/best.pt
-  freeze_brain_encoder_epochs: 1
-  output_dir: outputs/LibriBrain100/word_decoding_1s_cnn_warm_start
-
-provenance:
-  staged_training: freeze_cnn_one_epoch_then_joint

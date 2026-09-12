@@ -374,117 +374,51 @@ def test_记录缓存按合同降采样且不重复滤波(tmp_path):
     assert metadata["signature"]["source_is_preprocessed"] is True
 
 
-def test_actual_reading配置保持单一数据合同(monkeypatch):
+def test_actual_reading配置保持单一八人数据合同(monkeypatch):
     monkeypatch.setenv("BRAINDATA_ROOT", "D:/dataset")
     monkeypatch.setenv(
         "BRAINDECODING_MODEL_ROOT", "D:/code/dascoli-word-decoding/models"
     )
     project_root = Path(__file__).resolve().parents[1]
-    scopes = (
-        (
-            "ChineseEEG2_LittlePrince_sub01_actual_reading_1s",
-            ["sub-01"],
-            {"train": 10668, "val": 1769, "test": 1669},
-            252,
-        ),
-        (
-            "ChineseEEG2_LittlePrince_sub01_sub02_actual_reading_1s",
-            ["sub-01", "sub-02"],
-            {"train": 21336, "val": 3538, "test": 3338},
-            252,
-        ),
-        (
-            "ChineseEEG2_LittlePrince_sub01_sub04_actual_reading_1s",
-            ["sub-01", "sub-02", "sub-03", "sub-04"],
-            {"train": 42672, "val": 7076, "test": 6676},
-            252,
-        ),
-        (
-            "ChineseEEG2_LittlePrince_sub05_sub08_actual_reading_1s",
-            ["sub-05", "sub-06", "sub-07", "sub-08"],
-            {"train": 40672, "val": 7056, "test": 4224},
-            324,
-        ),
-        (
-            "ChineseEEG2_LittlePrince_sub01_sub08_actual_reading_1s",
-            ["sub-01", "sub-02", "sub-03", "sub-04", "sub-05", "sub-06", "sub-07", "sub-08"],
-            {"train": 81620, "val": 14132, "test": 8480},
-            649,
-        ),
-    )
-    for stem, subjects, counts, freeze_updates in scopes:
-        base = 载入配置(project_root / "configs" / f"{stem}.yaml")
-        cnn = 载入配置(project_root / "configs" / f"{stem}_cnn_only.yaml")
-        warm = 载入配置(project_root / "configs" / f"{stem}_cnn_warm_start.yaml")
+    root = project_root / "configs/word_decoding/chineseeeg2_littleprince/sub01-08"
+    word = 载入配置(root / "main_word.yaml")
+    context = 载入配置(root / "main_context.yaml")
 
-        assert base["dataset"]["event_source_type"] == "actual_reading_workbook"
-        assert base["dataset"]["context_grouping"] == "actual_reading_row_then_contiguous_chunks"
-        assert base["dataset"]["subjects"] == subjects
-        assert base["dataset"]["expected_trainable_counts"] == counts
-        assert base["dataset"]["window_seconds"] == 1.0
-        assert base["dataset"]["eligibility_window_seconds"] == 1.0
-        if subjects[0] == "sub-05":
-            assert base["dataset"]["voice_version"] == "m1"
-            assert base["dataset"]["excluded_chapters"] == [14, 27]
-        if len(subjects) == 8:
-            assert [source["voice_version"] for source in base["dataset"]["actual_reading_sources"]] == ["f1", "m1"]
-            assert base["dataset"]["excluded_chapters"] == [14, 27]
-        assert base["model"]["transformer"]["depth"] == 4
-        assert base["model"]["transformer"]["heads"] == 8
-        assert base["training"]["max_updates"] == 3200
-        assert base["training"]["scheduler_total_updates"] == 6400
-        assert cnn["model"]["use_transformer"] is False
-        assert warm["model"]["use_transformer"] is True
-        assert warm["training"]["freeze_brain_encoder_updates"] == freeze_updates
-        for section in ("dataset", "cache", "text_embedding", "loss", "evaluation"):
-            assert cnn[section] == base[section]
-            assert warm[section] == base[section]
+    expected_subjects = [f"sub-{index:02d}" for index in range(1, 9)]
+    expected_counts = {"train": 81620, "val": 14132, "test": 8480}
+    for config in (word, context):
+        dataset = config["dataset"]
+        assert dataset["event_source_type"] == "actual_reading_workbook"
+        assert dataset["subjects"] == expected_subjects
+        assert dataset["expected_trainable_counts"] == expected_counts
+        assert dataset["window_seconds"] == 1.0
+        assert dataset["eligibility_window_seconds"] == 1.0
+        assert [
+            source["voice_version"] for source in dataset["actual_reading_sources"]
+        ] == ["f1", "m1"]
+        assert dataset["excluded_chapters"] == [14, 27]
+        assert config["model"]["transformer"]["depth"] == 4
+        assert config["model"]["transformer"]["heads"] == 8
+        assert config["training"]["max_updates"] == 3200
+        assert config["training"]["scheduler_total_updates"] == 6400
+        assert all(
+            Path(value).resolve().is_relative_to((project_root / "derived").resolve())
+            for value in config["cache"].values()
+        )
 
-    generic = 载入配置(project_root / "configs" / "ChineseEEG2_LittlePrince.yaml")
-    single = 载入配置(
-        project_root / "configs" / "ChineseEEG2_LittlePrince_sub01_actual_reading_1s.yaml"
-    )
-    assert generic["dataset"] == single["dataset"]
-
-    semantic = 载入配置(
-        project_root
-        / "configs"
-        / "ChineseEEG2_LittlePrince_sub01_sub08_actual_reading_1s_semantic_cnn_warm_start.yaml"
-    )
-    row = 载入配置(
-        project_root
-        / "configs"
-        / "ChineseEEG2_LittlePrince_sub01_sub08_actual_reading_1s_cnn_warm_start.yaml"
-    )
-    assert semantic["dataset"]["context_grouping"] == "bounded_semantic_v1"
-    assert semantic["dataset"]["semantic_context"] == {
+    assert word["model"]["use_transformer"] is False
+    assert context["model"]["use_transformer"] is True
+    assert context["dataset"]["context_grouping"] == "bounded_semantic_v1"
+    assert context["dataset"]["semantic_context"] == {
         "actual_reading_line_sheet_name": "逐行对照",
         "preferred_words": 16,
         "maximum_words": 32,
         "maximum_seconds": 15.0,
     }
-    assert semantic["cache"]["event_table"] != row["cache"]["event_table"]
-    assert semantic["training"]["output_dir"] != row["training"]["output_dir"]
-    for section in ("model", "text_embedding", "loss", "evaluation"):
-        assert semantic[section] == row[section]
-    for key in (
-        "subjects",
-        "actual_reading_sources",
-        "excluded_chapters",
-        "expected_trainable_counts",
-        "split",
-        "window_seconds",
-        "eligibility_window_seconds",
-    ):
-        assert semantic["dataset"][key] == row["dataset"][key]
-    for key in (
-        "pretrained_brain_encoder_checkpoint",
-        "freeze_brain_encoder_updates",
-        "max_updates",
-        "scheduler_total_updates",
-    ):
-        assert semantic["training"][key] == row["training"][key]
-
+    assert context["training"]["freeze_brain_encoder_updates"] == 649
+    assert context["training"]["warm_start_from"] == "main_word"
+    for section in ("text_embedding", "loss", "evaluation"):
+        assert context[section] == word[section]
 
 def test_预热检查点只载入脑编码器(tmp_path):
     positions = np.asarray(
