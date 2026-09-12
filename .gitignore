@@ -21,3 +21,15 @@ __pycache__/
 *.egg-info/
 .pytest*
 .env
+
+# LaTeX 编译产物（不忽略论文 Figure 使用的 PDF）
+paper/manuscript/*.aux
+paper/manuscript/*.log
+paper/manuscript/*.out
+paper/manuscript/*.toc
+paper/manuscript/*.bbl
+paper/manuscript/*.blg
+paper/manuscript/*.fls
+paper/manuscript/*.fdb_latexmk
+paper/manuscript/*.synctex.gz
+paper/manuscript/main.pdf
