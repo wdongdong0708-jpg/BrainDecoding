@@ -30,7 +30,7 @@ CANONICAL_FILES = (
     "word_decoding/chineseeeg2_littleprince/sub01-08/main_word.yaml",
     "word_decoding/chineseeeg2_littleprince/sub01-08/main_context.yaml",
     "word_decoding/smn4lang/sub01-06/main_word.yaml",
-    "word_decoding/smn4lang/sub01-06/main_context.yaml",
+    "word_decoding/smn4lang/sub01-06/main_context_warmstart.yaml",
     "word_decoding/libribrain100/sub0/main_word.yaml",
     "word_decoding/libribrain100/sub0/main_context.yaml",
     "sequence_decoding/chineseeeg1_sr/sub04-10_sub13-14/historical_row_retrieval_fourier_subject.yaml",
@@ -40,13 +40,13 @@ ACTIVE_SCIENTIFIC_SHA256 = {
     "word_decoding/chineseeeg2_littleprince/sub01-08/main_word.yaml": "480ac719eb6b3a143a84ebaff5b9163e578bcc0e22142d90b894a01b4f60ec4b",
     "word_decoding/chineseeeg2_littleprince/sub01-08/main_context.yaml": "3951b8a5d1936265da3d506ada1e74aeb5e2a34ae4466a4cb6fbdf70150d6387",
     "word_decoding/smn4lang/sub01-06/main_word.yaml": "40fba01a86059b0b1299498b0bbff50aca2b8b0080995936604afbf84103ca1a",
-    "word_decoding/smn4lang/sub01-06/main_context.yaml": "91cb836820b6d1e49077396f19eea013f703c20e2ee0b68d62f5501b3677a9d2",
+    "word_decoding/smn4lang/sub01-06/main_context_warmstart.yaml": "e4d1c2bfaafad349092e626e6722baae8032c14624cfd7f73111b2a69ccdbdf5",
     "word_decoding/libribrain100/sub0/main_word.yaml": "af6c317dcc0b8e697504d69f887765762bf20394f7f1f7786470dfc6de951617",
     "word_decoding/libribrain100/sub0/main_context.yaml": "bd27d21f8a7ea54c380483a019596223eee5144625a927322319bdd0e6d62385",
 }
 WARM_STARTS = {
     "word_decoding/chineseeeg2_littleprince/sub01-08/main_context.yaml": "main_word",
-    "word_decoding/smn4lang/sub01-06/main_context.yaml": "main_word",
+    "word_decoding/smn4lang/sub01-06/main_context_warmstart.yaml": "main_word",
 }
 ARCHIVE_ONLY_OUTPUTS = (
     "outputs/ChineseEEG1_SR/LittlePrince_row_retrieval",
@@ -334,8 +334,8 @@ def test_task_loaders_inject_canonical_output_and_warm_start_paths():
         ),
         (
             load_smn4lang,
-            "word_decoding/smn4lang/sub01-06/main_context.yaml",
-            "word_decoding/smn4lang/sub01-06/main_context/seed-000",
+            "word_decoding/smn4lang/sub01-06/main_context_warmstart.yaml",
+            "word_decoding/smn4lang/sub01-06/main_context_warmstart/seed-000",
             "word_decoding/smn4lang/sub01-06/main_word/seed-000/best.pt",
         ),
     )

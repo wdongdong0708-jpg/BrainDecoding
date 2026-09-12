@@ -171,7 +171,7 @@ def test_smn4lang_six_subject_main_configs_are_explicit(monkeypatch):
         "BRAINDECODING_MODEL_ROOT", "D:/code/dascoli-word-decoding/models"
     )
     root = Path(__file__).resolve().parents[1]
-    for name in ("main_word.yaml", "main_context.yaml"):
+    for name in ("main_word.yaml", "main_context_warmstart.yaml"):
         config = load_yaml_with_extends(
             root / "configs/word_decoding/smn4lang/sub01-06" / name
         )

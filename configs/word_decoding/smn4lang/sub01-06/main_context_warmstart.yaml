@@ -4,11 +4,12 @@ experiment:
   task: word_decoding
   dataset: smn4lang
   subject_scope: sub01-06
-  id: main_context
+  id: main_context_warmstart
   category: main
 
 training:
   warm_start_from: main_word
+  freeze_brain_encoder_updates: 960
 
 provenance:
   context_condition: sentence_transformer

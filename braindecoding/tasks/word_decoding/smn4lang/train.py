@@ -22,7 +22,7 @@ DEFAULT_CONFIG = (
     / "word_decoding"
     / "smn4lang"
     / "sub01-06"
-    / "main_context.yaml"
+    / "main_context_warmstart.yaml"
 )
 from braindecoding.experiment import (
     initialize_run_directory,

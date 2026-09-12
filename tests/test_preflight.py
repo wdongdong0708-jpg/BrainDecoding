@@ -85,8 +85,12 @@ def test_context_dependencies_wait_for_same_scope_main_word(tmp_path, monkeypatc
         (item["identity"]["dataset"], item["identity"]["experiment_id"]): item
         for item in report["experiments"]
     }
-    for dataset in ("chineseeeg2_littleprince", "smn4lang"):
-        context = by_key[(dataset, "main_context")]
+    context_ids = {
+        "chineseeeg2_littleprince": "main_context",
+        "smn4lang": "main_context_warmstart",
+    }
+    for dataset, context_id in context_ids.items():
+        context = by_key[(dataset, context_id)]
         dependency = context["dependency_status"]
         assert dependency["status"] == "waiting_for_upstream"
         assert dependency["upstream_identity"]["experiment_id"] == "main_word"
@@ -118,7 +122,8 @@ def test_existing_upstream_checkpoint_makes_context_dependency_ready(
     contexts = [
         item
         for item in report["experiments"]
-        if item["identity"]["experiment_id"] == "main_context"
+        if item["identity"]["experiment_id"]
+        in {"main_context", "main_context_warmstart"}
     ]
     assert all(item["dependency_status"]["status"] in {"ready", "not_required"} for item in contexts)
     assert all(item["ready"] is True for item in contexts)

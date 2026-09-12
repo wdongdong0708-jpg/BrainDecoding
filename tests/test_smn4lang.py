@@ -166,7 +166,7 @@ def test_active_word_and_context_configs_share_six_subject_contract(monkeypatch)
     )
     project_root = Path(__file__).resolve().parents[1]
     root = project_root / "configs/word_decoding/smn4lang/sub01-06"
-    transformer_config = load_config(root / "main_context.yaml")
+    transformer_config = load_config(root / "main_context_warmstart.yaml")
     conv_only_config = load_config(root / "main_word.yaml")
 
     assert transformer_config["model"]["use_transformer"] is True
@@ -194,11 +194,11 @@ def test_active_context_warm_start_points_to_active_word(monkeypatch):
     project_root = Path(__file__).resolve().parents[1]
     staged = load_config(
         project_root
-        / "configs/word_decoding/smn4lang/sub01-06/main_context.yaml"
+        / "configs/word_decoding/smn4lang/sub01-06/main_context_warmstart.yaml"
     )
     assert staged["training"]["warm_start_from"] == "main_word"
     assert staged["training"]["max_updates"] == 6400
-    assert "freeze_brain_encoder_updates" not in staged["training"]
+    assert staged["training"]["freeze_brain_encoder_updates"] == 960
 
 
 def test_pretrained_checkpoint_loads_only_brain_encoder(tmp_path):
@@ -358,7 +358,7 @@ def test_default_config_is_active_six_subject_context(monkeypatch):
     )
     config = load_config()
     assert config["experiment"]["subject_scope"] == "sub01-06"
-    assert config["experiment"]["id"] == "main_context"
+    assert config["experiment"]["id"] == "main_context_warmstart"
     assert config["model"]["embedding_dimension"] == 768
 
 

@@ -40,15 +40,15 @@
       "scientific_config_sha256_after": "af6c317dcc0b8e697504d69f887765762bf20394f7f1f7786470dfc6de951617",
       "scientific_config_sha256_before": "af6c317dcc0b8e697504d69f887765762bf20394f7f1f7786470dfc6de951617"
     },
-    "smn4lang_main_context": {
+    "smn4lang_main_context_warmstart": {
       "cache_paths": [
         "derived/smn4lang/events/events_sub01-06.csv",
         "derived/smn4lang/signals/meg_50hz",
         "derived/smn4lang/text/mengzi_t5_layer_0_5/embeddings.npz"
       ],
-      "config": "configs/word_decoding/smn4lang/sub01-06/main_context.yaml",
-      "scientific_config_sha256_after": "91cb836820b6d1e49077396f19eea013f703c20e2ee0b68d62f5501b3677a9d2",
-      "scientific_config_sha256_before": "91cb836820b6d1e49077396f19eea013f703c20e2ee0b68d62f5501b3677a9d2"
+      "config": "configs/word_decoding/smn4lang/sub01-06/main_context_warmstart.yaml",
+      "scientific_config_sha256_after": "e4d1c2bfaafad349092e626e6722baae8032c14624cfd7f73111b2a69ccdbdf5",
+      "scientific_config_sha256_before": "e4d1c2bfaafad349092e626e6722baae8032c14624cfd7f73111b2a69ccdbdf5"
     },
     "smn4lang_main_word": {
       "cache_paths": [
@@ -22078,7 +22078,7 @@
     "path": "experiments/legacy_results_manifest.json",
     "run_count": 32
   },
-  "manifest_sha256": "392e3bdeaff62070a2f2386220a053f3569d565e79492680c0ff6691478241a3",
+  "manifest_sha256": "ae8115b66cb1bf184aed6f9f3d036a6178ecc759f4c50664711c3942a691060f",
   "schema_version": 1,
   "status": "dry_run_validated_before_cleanup"
 }

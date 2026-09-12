@@ -59,7 +59,7 @@ CONFIGS = {
         "word": PROJECT_ROOT
         / "configs/word_decoding/smn4lang/sub01-06/main_word.yaml",
         "neural_context": PROJECT_ROOT
-        / "configs/word_decoding/smn4lang/sub01-06/main_context.yaml",
+        / "configs/word_decoding/smn4lang/sub01-06/main_context_warmstart.yaml",
     },
 }
 

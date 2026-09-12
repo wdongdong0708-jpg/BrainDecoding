@@ -19,7 +19,7 @@ SELECTORS = {
     "chineseeeg2_littleprince/sub01-08/main_word",
     "chineseeeg2_littleprince/sub01-08/main_context",
     "smn4lang/sub01-06/main_word",
-    "smn4lang/sub01-06/main_context",
+    "smn4lang/sub01-06/main_context_warmstart",
     "libribrain100/sub0/main_word",
     "libribrain100/sub0/main_context",
 }
@@ -74,7 +74,7 @@ def test_list_discovers_exactly_six_active_experiments(capsys):
 
 
 def test_selector_resolution_and_nearby_error():
-    selector = "smn4lang/sub01-06/main_context"
+    selector = "smn4lang/sub01-06/main_context_warmstart"
     assert resolve_selector(selector)["selector"] == selector
     with pytest.raises(ValueError, match="相近候选"):
         resolve_selector("smn4lang/sub01-06/main_contex")

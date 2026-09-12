@@ -174,7 +174,7 @@ def main(dataset_name="ChineseEEG2", record_audit=False):
             from braindecoding.tasks.word_decoding.smn4lang import train as task_training
             from braindecoding.data import smn4lang as module
             config_path = (
-                "configs/word_decoding/smn4lang/sub01-06/main_context.yaml"
+                "configs/word_decoding/smn4lang/sub01-06/main_context_warmstart.yaml"
             )
             vocabulary = module.SMN4LANG50_VOCABULARY
         else:
@@ -380,7 +380,7 @@ def 错词分析(dataset_name="ChineseEEG2"):
         from braindecoding.tasks.word_decoding.smn4lang import train as task_training
         from braindecoding.data import smn4lang as module
         config = task_training.load_config(
-            "configs/word_decoding/smn4lang/sub01-06/main_context.yaml"
+            "configs/word_decoding/smn4lang/sub01-06/main_context_warmstart.yaml"
         )
         load_table = module.load_event_table
         vocabulary = module.SMN4LANG50_VOCABULARY
