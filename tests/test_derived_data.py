@@ -126,6 +126,7 @@ def test_signal_cache_subject_directory_is_explicit():
         ("chineseeeg2_littleprince", "events/events.csv"),
         ("smn4lang", "events/events_sub01-06.csv"),
         ("libribrain100", "events/events.csv"),
+        ("pallier2025", "events/events.csv"),
     ],
 )
 def test_canonical_cache_paths_never_use_task_local_cache(dataset, expected_event):

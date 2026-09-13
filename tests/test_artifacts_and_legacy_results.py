@@ -146,11 +146,13 @@ def test_legacy_manifest_records_existing_files_without_reading_their_payloads()
     )
     assert all(re.fullmatch(r"[0-9a-f]{64}", item["sha256"]) for item in records)
 
-    # 大扫除后只校验仍保留原位的历史数值参照；manifest 允许记录已清理文件。
+    # 大扫除后 manifest 是不可变历史账本，不要求大文件继续留在原路径。
+    assert len({item["relative_path"] for item in records}) == len(records)
+    assert all(item["relative_path"] for item in records)
+    assert all(int(item["size_bytes"]) > 0 for item in records)
     existing = [
         item for item in records if (PROJECT_ROOT / item["relative_path"]).is_file()
     ]
-    assert existing
     for item in existing:
         path = PROJECT_ROOT / item["relative_path"]
         assert path.stat().st_size == item["size_bytes"]

@@ -1,0 +1,43 @@
+dataset:
+  id: pallier2025
+  name: LittlePrince_MEG_French_Listen_Pallier2025
+  openneuro_id: ds007523
+  root: ${BRAINDATA_ROOT}/LittlePrince_MEG_French_Listen_Pallier2025
+  session: ses-01
+  subjects: [sub-01, sub-02, sub-03, sub-04, sub-05, sub-06, sub-07, sub-08, sub-09, sub-10]
+  runs: [run-01, run-02, run-03, run-04, run-05, run-06, run-07, run-08, run-09]
+  canonical_scope: sub01-10
+  context_grouping: run_and_extra_info_sequence_id
+  normalization: strip_lower_preserve_french_accents_and_tokenization
+  eligibility_window_seconds: 3.0
+  source_sampling_rate_hz: 1000.0
+  target_sampling_rate_hz: 50.0
+  filter_low_hz: 0.1
+  filter_high_hz: 40.0
+  scaler: RobustScaler
+  mne_n_jobs: -1
+  signal_materialization_version: 1
+  expected_meg_channel_count: 306
+  expected_magnetometer_count: 102
+  expected_gradiometer_count: 204
+  channel_names_sha256: 807ff5cf39a18398f004221d596241033e9c55c91f031842069120d10dbf9fb8
+  split_manifest: experiments/manifests/pallier2025/run_split.json
+  qc_artifact: artifacts/annotations/pallier2025/sub-09_run-03_qc.json
+
+cache:
+  event_table: derived/pallier2025/events/events.csv
+  meg_dir: derived/pallier2025/signals/meg_50hz
+  text_embeddings: derived/pallier2025/text/t5_large_layer_0_5/embeddings.npz
+
+provenance:
+  raw_dataset_name: LittlePrince_MEG_French_Listen_Pallier2025
+  openneuro_id: ds007523
+  stage: signal_contract_frozen
+  preprocessing_reference_commit: e1262ee36aa2fbaa6965e5bfb893f6aaee0dd693
+  signal_materialization: deterministic_canonical
+  text_embedding: not_run
+  model_evaluation: not_run
+  test_neural_data_status: raw_accessed_for_deterministic_preprocessing_only
+  test_model_evaluation: not_run
+  test_predictions_generated: false
+  test_metrics_inspected: false

@@ -27,7 +27,7 @@ def _vocabularies(dataset):
 
 def test_all_machine_manifests_have_stable_self_hashes():
     paths = sorted(MANIFEST_ROOT.rglob("*.json"))
-    assert len(paths) == 18
+    assert len(paths) == 19
     for path in paths:
         payload = json.loads(path.read_text(encoding="utf-8"))
         if "manifest_sha256" not in payload:

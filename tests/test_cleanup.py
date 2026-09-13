@@ -120,9 +120,9 @@ def test_legacy_evidence_and_local_output_boundaries_are_preserved():
         PROJECT_ROOT / "archive/smn4lang/sub01_legacy/SMN4Lang"
     ).is_dir()
     assert not (PROJECT_ROOT / "outputs/SMN4Lang").exists()
-    assert {path.name for path in (PROJECT_ROOT / "outputs").iterdir()} == {
-        "ChineseEEG1_SR",
-        "ChineseEEG2_LittlePrince",
-        "LibriBrain100",
-    }
+    output_roots = {path.name for path in (PROJECT_ROOT / "outputs").iterdir()}
+    assert output_roots <= {"word_decoding", "sequence_decoding"}
+    assert not output_roots.intersection(
+        {"ChineseEEG1_SR", "ChineseEEG2_LittlePrince", "LibriBrain100", "SMN4Lang"}
+    )
     assert not list((PROJECT_ROOT / "outputs").glob("pytest_*"))

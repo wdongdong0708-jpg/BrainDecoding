@@ -241,16 +241,28 @@ def validate_event_table(table: pd.DataFrame) -> tuple[str, ...]:
     if starts.gt(stops).any():
         raise ValueError("开始时间不能晚于结束时间。")
 
+    trainable = table["是否可训练"]
+    if not is_bool_dtype(trainable.dtype):
+        raise ValueError("是否可训练必须保持布尔语义。")
+
     material_fingerprints = []
     for keys, group in table.groupby(
         ["材料编号", "受试者", "记录编号"], sort=False, dropna=False
     ):
+        # 完整排除的 recording 没有可用于材料合同的神经事件；保留其原始
+        # annotation 供审计，但不让已冻结的显式排除阻断其他可训练记录。
+        if not group["是否可训练"].astype(bool).any():
+            continue
         words = group.sort_values("记录内序号", kind="stable")["标准词"]
         material_fingerprints.append((str(keys[0]), text_fingerprint(words)))
     fingerprint_table = pd.DataFrame(
         material_fingerprints, columns=["材料编号", "文本指纹"]
     )
-    fingerprint_counts = fingerprint_table.groupby("材料编号")["文本指纹"].nunique()
+    fingerprint_counts = (
+        fingerprint_table.groupby("材料编号")["文本指纹"].nunique()
+        if not fingerprint_table.empty
+        else pd.Series(dtype=int)
+    )
     inconsistent_materials = sorted(
         fingerprint_counts[fingerprint_counts.gt(1)].index.astype(str)
     )
@@ -259,9 +271,6 @@ def validate_event_table(table: pd.DataFrame) -> tuple[str, ...]:
             f"材料编号对应多个文本指纹：{inconsistent_materials[:10]}"
         )
 
-    trainable = table["是否可训练"]
-    if not is_bool_dtype(trainable.dtype):
-        raise ValueError("是否可训练必须保持布尔语义。")
     empty_reason = table["排除原因"].isna() | table["排除原因"].astype(
         str
     ).str.strip().eq("")

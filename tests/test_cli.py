@@ -112,16 +112,33 @@ def test_preflight_does_not_create_run_directory(tmp_path, monkeypatch):
     assert list(tmp_path.iterdir()) == []
 
 
-def test_run_missing_upstream_is_clear_and_has_no_side_effects(capsys):
+def test_run_missing_upstream_is_clear_and_has_no_side_effects(
+    tmp_path, monkeypatch, capsys
+):
     selector = "chineseeeg2_littleprince/sub01-08/main_context"
     record = resolve_selector(selector)
-    output = cli.run_directory(record["raw_config"])
-    assert not (output.parent.parent / "main_word" / "seed-000" / "best.pt").exists()
+    output = tmp_path / "main_context" / "seed-000"
+    upstream = tmp_path / "main_word" / "seed-000" / "best.pt"
+    monkeypatch.setattr(cli, "run_directory", lambda config: output)
+    monkeypatch.setattr(cli, "warm_start_checkpoint", lambda config: upstream)
     assert cli.main(["run", selector]) == 2
     error = capsys.readouterr().err
     assert "Missing upstream experiment" in error
     assert "chineseeeg2_littleprince/sub01-08/main_word" in error
     assert not output.exists()
+
+
+def test_present_upstream_dependency_is_accepted_without_using_real_outputs(
+    tmp_path, monkeypatch, capsys
+):
+    selector = "chineseeeg2_littleprince/sub01-08/main_context"
+    record = resolve_selector(selector)
+    upstream = tmp_path / "main_word" / "seed-000" / "best.pt"
+    upstream.parent.mkdir(parents=True)
+    upstream.write_bytes(b"fixture checkpoint contract only")
+    monkeypatch.setattr(cli, "warm_start_checkpoint", lambda config: upstream)
+    assert cli._missing_upstream(record, record["raw_config"]) is None
+    assert capsys.readouterr().err == ""
 
 
 def test_cli_has_no_test_evaluation_option():

@@ -55,6 +55,14 @@ def canonical_cache_paths(dataset: str) -> dict[str, str]:
                 "derived/libribrain100/text/t5_large_layer_0_5/embeddings.npz"
             ),
         }
+    if dataset == "pallier2025":
+        return {
+            "event_table": "derived/pallier2025/events/events.csv",
+            "meg_dir": "derived/pallier2025/signals/meg_50hz",
+            "text_embeddings": (
+                "derived/pallier2025/text/t5_large_layer_0_5/embeddings.npz"
+            ),
+        }
     raise ValueError(f"没有为数据集定义 canonical derived 路径：{dataset}")
 
 
@@ -204,6 +212,7 @@ def build_event_manifest(
     source_contract,
     audit,
     builder_sources=(),
+    additional_fields=None,
 ) -> dict:
     """为已经落盘的 canonical 事件表构建稳定 manifest。"""
     validate_event_table(table)
@@ -250,6 +259,11 @@ def build_event_manifest(
         "source_contract_sha256": stable_sha256(source_contract),
         "audit": audit,
     }
+    additional_fields = dict(additional_fields or {})
+    overlap = sorted(set(manifest) & set(additional_fields))
+    if overlap:
+        raise ValueError(f"事件 manifest 扩展字段覆盖保留字段：{overlap}")
+    manifest.update(additional_fields)
     manifest["manifest_sha256"] = stable_sha256(manifest)
     return manifest
 

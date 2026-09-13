@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 
 from braindecoding.config import PROJECT_ROOT, load_yaml_with_extends, project_path
-from braindecoding.data import chineseeeg2, libribrain, smn4lang
+from braindecoding.data import chineseeeg2, libribrain, pallier2025, smn4lang
 from braindecoding.data.derived import (
     canonical_cache_paths,
     event_manifest_path,
@@ -26,6 +26,7 @@ DATASETS = (
     "chineseeeg2_littleprince",
     "smn4lang",
     "libribrain100",
+    "pallier2025",
 )
 
 
@@ -36,12 +37,15 @@ def _config_path(dataset: str) -> Path:
         return PROJECT_ROOT / "configs/word_decoding/smn4lang/sub01-06/main_context_warmstart.yaml"
     if dataset == "libribrain100":
         return PROJECT_ROOT / "configs/word_decoding/libribrain100/sub0/main_context.yaml"
+    if dataset == "pallier2025":
+        return PROJECT_ROOT / "configs/word_decoding/pallier2025/base.yaml"
     raise ValueError(f"未知数据集：{dataset}")
 
 
 def load_build_config(dataset: str) -> dict:
     """读取数据集的冻结构建配置，并解析所有项目内路径。"""
-    config = resolve_experiment_config(load_yaml_with_extends(_config_path(dataset)))
+    loaded = load_yaml_with_extends(_config_path(dataset))
+    config = loaded if dataset == "pallier2025" else resolve_experiment_config(loaded)
     config["cache"].update(canonical_cache_paths(dataset))
     for key in ("event_table", "eeg_dir", "meg_dir", "text_embeddings"):
         if key in config["cache"]:
@@ -52,10 +56,23 @@ def load_build_config(dataset: str) -> dict:
     for source in config["dataset"].get("actual_reading_sources", ()):
         if source.get("alignment_path"):
             source["alignment_path"] = str(project_path(source["alignment_path"]))
+    for key in ("split_manifest", "qc_artifact"):
+        if config["dataset"].get(key):
+            config["dataset"][key] = str(project_path(config["dataset"][key]))
     return config
 
 
 def _artifact_dependencies(dataset: str, config: dict) -> list[dict]:
+    if dataset == "pallier2025":
+        path = Path(config["dataset"]["qc_artifact"])
+        return [
+            {
+                "role": "immutable_annotation_qc",
+                "path": path.relative_to(PROJECT_ROOT).as_posix(),
+                "sha256": sha256_file(path),
+                "size_bytes": path.stat().st_size,
+            }
+        ]
     if dataset != "chineseeeg2_littleprince":
         return []
     sources = config["dataset"].get("actual_reading_sources") or [config["dataset"]]
@@ -96,11 +113,14 @@ def _window_contract(config: dict) -> dict:
 
 def _context_definition(config: dict) -> dict:
     dataset = config["dataset"]
-    return {
+    result = {
         "grouping": dataset.get("context_grouping"),
         "maximum_words": dataset.get("max_context_words"),
         "semantic_context": dataset.get("semantic_context"),
     }
+    if dataset.get("id") == "pallier2025":
+        result["identifier"] = "pallier2025|run-YY|sequence-ZZZ"
+    return result
 
 
 def _source_contract(dataset: str, config: dict) -> dict:
@@ -183,6 +203,8 @@ def _build_events(dataset: str, config: dict):
         legacy_table = libribrain.build_event_table(dataset_config)
         audit = libribrain.audit_event_table(legacy_table, dataset_config)
         table = libribrain.canonical_event_table(legacy_table)
+    elif dataset == "pallier2025":
+        table, audit = pallier2025.build_event_table(dataset_config)
     else:
         raise ValueError(f"未知数据集：{dataset}")
 
@@ -199,13 +221,52 @@ def _build_events(dataset: str, config: dict):
             "window_contract": _window_contract(config),
             "source_contract": _source_contract(dataset, config),
             "audit": audit,
+            "additional_fields": (
+                {
+                    "raw_dataset_name": pallier2025.RAW_DATASET_NAME,
+                    "openneuro_id": pallier2025.OPENNEURO_ID,
+                    "canonical_scope": pallier2025.CORE_SCOPE,
+                    "run_split": {
+                        "manifest": Path(dataset_config["split_manifest"])
+                        .relative_to(PROJECT_ROOT)
+                        .as_posix(),
+                        "sha256": sha256_file(dataset_config["split_manifest"]),
+                        "assignments": {
+                            split: [
+                                run
+                                for run, value in pallier2025.load_run_split(
+                                    dataset_config["split_manifest"]
+                                ).items()
+                                if value == split
+                            ]
+                            for split in ("train", "val", "test")
+                        },
+                    },
+                    "normalization": dataset_config["normalization"],
+                    "qc_decision": audit["qc_decision"],
+                    "alignment_fingerprints": [
+                        {
+                            "subject": item["subject"],
+                            "run": item["run"],
+                            "bids": item["left_fingerprint"],
+                            "extra_info": item["right_fingerprint"],
+                            "edit_distance": item["edit_distance"],
+                        }
+                        for item in audit["alignment_audits"]
+                    ],
+                }
+                if dataset == "pallier2025"
+                else None
+            ),
             "builder_sources": [
                 Path(__file__),
                 Path(chineseeeg2.__file__)
                 if dataset == "chineseeeg2_littleprince"
                 else Path(smn4lang.__file__)
                 if dataset == "smn4lang"
-                else Path(libribrain.__file__),
+                else Path(libribrain.__file__)
+                if dataset == "libribrain100"
+                else Path(pallier2025.__file__),
                 PROJECT_ROOT / "braindecoding/data/derived.py",
                 PROJECT_ROOT / "braindecoding/events.py",
             ],
@@ -222,6 +283,8 @@ def _load_events(dataset: str, config: dict):
         return chineseeeg2.载入事件表(path, trainable_only=False)
     if dataset == "smn4lang":
         return smn4lang.load_event_table(path, trainable_only=False)
+    if dataset == "pallier2025":
+        return pallier2025.load_event_table(path)
     return libribrain.load_event_table(path, trainable_only=False)
 
 
@@ -524,6 +587,29 @@ def _validate_text_contract(dataset: str, config: dict, table) -> dict:
 
 def _build_signals(dataset: str, config: dict, table, *, force=False) -> Path:
     dataset_config = config["dataset"]
+    if dataset == "pallier2025":
+        provenance_dir = PROJECT_ROOT / "derived/pallier2025/provenance"
+        pallier2025.run_reference_gate(dataset_config, provenance_dir)
+        pallier2025.build_time_origin_audit(dataset_config, provenance_dir)
+        timing_records = []
+        manifest_path = pallier2025.ensure_recording_signals(
+            table,
+            dataset_config,
+            config["cache"]["meg_dir"],
+            project_root=PROJECT_ROOT,
+            force=force,
+            timing_records=timing_records,
+        )
+        benchmark_path = provenance_dir / "materialization_benchmark.json"
+        payload = {
+            "schema_version": 1,
+            "dataset": dataset,
+            "recording_count": len(timing_records),
+            "records": timing_records,
+        }
+        payload["manifest_sha256"] = stable_sha256(payload)
+        _write_json_atomic(benchmark_path, payload)
+        return manifest_path
     if dataset == "chineseeeg2_littleprince":
         paths = chineseeeg2.确保记录缓存(
             table, dataset_config, config["cache"]["eeg_dir"], force=force
@@ -579,6 +665,8 @@ def _component_manifest_paths(dataset: str, config: dict) -> dict[str, Path]:
     signal_path = (
         _smn_signal_manifest_path(config)
         if dataset == "smn4lang"
+        else PROJECT_ROOT / "derived/pallier2025/signals/manifest.json"
+        if dataset == "pallier2025"
         else PROJECT_ROOT / "derived" / dataset / "provenance" / "signals.json"
     )
     return {
@@ -647,7 +735,46 @@ def _write_dataset_manifest(dataset: str, config: dict, table) -> Path:
     return path
 
 
-def validate_dataset_manifest(path) -> dict:
+def _write_partial_dataset_manifest(dataset: str, config: dict) -> Path:
+    """为尚未完成全部组件的数据集写诚实的状态索引。"""
+    event_path = Path(config["cache"]["event_table"])
+    event_manifest = event_manifest_path(event_path)
+    event_payload = validate_event_product(event_path, event_manifest)
+    signal_manifest = _component_manifest_paths(dataset, config)["signals"]
+    signal_component = {"status": "missing"}
+    if signal_manifest.exists():
+        if dataset != "pallier2025":
+            raise ValueError("partial dataset manifest 目前只支持 Pallier2025。")
+        signal_payload = pallier2025.validate_signal_manifest(signal_manifest)
+        signal_component = {
+            "status": "complete",
+            "manifest": signal_manifest.relative_to(PROJECT_ROOT).as_posix(),
+            "sha256": sha256_file(signal_manifest),
+            "coverage": signal_payload["coverage"],
+        }
+    payload = {
+        "schema_version": 1,
+        "dataset": dataset,
+        "status": "incomplete",
+        "components": {
+            "events": {
+                "status": "complete",
+                "manifest": event_manifest.relative_to(PROJECT_ROOT).as_posix(),
+                "sha256": sha256_file(event_manifest),
+                "event_table_sha256": event_payload["event_table_sha256"],
+            },
+            "signals": signal_component,
+            "text": {"status": "missing"},
+        },
+    }
+    payload["manifest_sha256"] = stable_sha256(payload)
+    path = _dataset_manifest_path(dataset)
+    _write_json_atomic(path, payload)
+    validate_dataset_manifest(path, require_complete=False)
+    return path
+
+
+def validate_dataset_manifest(path, *, require_complete=True) -> dict:
     """验证数据集总索引；不重新构建任何 derived 产品。"""
     path = Path(path)
     payload = json.loads(path.read_text(encoding="utf-8"))
@@ -655,10 +782,16 @@ def validate_dataset_manifest(path) -> dict:
     recorded_sha = body.pop("manifest_sha256", None)
     if stable_sha256(body) != recorded_sha:
         raise ValueError(f"数据集 manifest 自摘要不一致：{path}")
-    if payload.get("status") != "complete":
+    if require_complete and payload.get("status") != "complete":
         raise ValueError(f"数据集 derived 状态不是 complete：{path}")
     for component, record in payload.get("components", {}).items():
         if record.get("status") != "complete":
+            if require_complete:
+                raise ValueError(f"derived 组件未完成：{component}")
+            if record.get("status") != "missing":
+                raise ValueError(f"derived 组件状态无效：{component}")
+            continue
+        if "manifest" not in record or "sha256" not in record:
             raise ValueError(f"derived 组件未完成：{component}")
         manifest_path = PROJECT_ROOT / record["manifest"]
         if sha256_file(manifest_path) != record["sha256"]:
@@ -670,6 +803,32 @@ def check_dataset(dataset: str) -> dict:
     """只读验证一个数据集的完整 canonical derived 合同。"""
     config = load_build_config(dataset)
     table = _load_events(dataset, config)
+    if dataset == "pallier2025":
+        event_payload = validate_event_product(config["cache"]["event_table"])
+        dataset_manifest = validate_dataset_manifest(
+            _dataset_manifest_path(dataset), require_complete=False
+        )
+        signal_coverage = None
+        signal_record = dataset_manifest["components"]["signals"]
+        if signal_record["status"] == "complete":
+            signal_payload = pallier2025.validate_signal_manifest(
+                PROJECT_ROOT / signal_record["manifest"], event_table=table
+            )
+            signal_coverage = signal_payload["coverage"]
+        return {
+            "dataset": dataset,
+            "status": dataset_manifest["status"],
+            "components": {
+                name: record["status"]
+                for name, record in dataset_manifest["components"].items()
+            },
+            "event_count": int(len(table)),
+            "event_table_sha256": event_payload["event_table_sha256"],
+            "signal_coverage": signal_coverage,
+            "text_contract": None,
+            "dataset_manifest_sha256": dataset_manifest["manifest_sha256"],
+            "test_model_evaluation_performed": False,
+        }
     validated = _validate_components(dataset, config, table)
     dataset_manifest = validate_dataset_manifest(_dataset_manifest_path(dataset))
     return {
@@ -720,6 +879,8 @@ def build_dataset(
             _build_signals(dataset, config, table, force=force)
         )
     if text:
+        if dataset == "pallier2025":
+            raise ValueError("Pallier2025 阶段 2A 尚未冻结 text 数值合同。")
         result["text_manifest"] = str(_build_text(dataset, config, table))
     component_paths = _component_manifest_paths(dataset, config)
     if all(path.exists() for path in component_paths.values()):
@@ -727,6 +888,10 @@ def build_dataset(
             table = _load_events(dataset, config)
         result["dataset_manifest"] = str(
             _write_dataset_manifest(dataset, config, table)
+        )
+    elif dataset == "pallier2025" and Path(config["cache"]["event_table"]).exists():
+        result["dataset_manifest"] = str(
+            _write_partial_dataset_manifest(dataset, config)
         )
     return result
 
