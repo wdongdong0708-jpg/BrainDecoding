@@ -39,7 +39,7 @@ from braindecoding.tasks.word_decoding.smn4lang import train as smn_training
 
 
 MANIFEST_ROOT = PROJECT_ROOT / "experiments" / "manifests"
-OUTPUT_ROOT = PROJECT_ROOT / "reports" / "legacy" / "validation_controls"
+OUTPUT_ROOT = PROJECT_ROOT / "reports" / "audits" / "validation_controls"
 CHINESE_EVENT_TABLE = (
     PROJECT_ROOT
     / "derived/chineseeeg2_littleprince/events/events.csv"

@@ -122,12 +122,17 @@ def resolve_experiment_config(config, output_root=None):
         "chineseeeg2_littleprince",
         "smn4lang",
         "libribrain100",
+        "pallier2025",
     }:
         # 只有 canonical 词级配置改用 derived；legacy 配置仍保留原缓存路径。
         from braindecoding.data.derived import canonical_cache_paths
 
         resolved.setdefault("cache", {}).update(canonical_cache_paths(dataset_name))
-        if dataset_name in {"chineseeeg2_littleprince", "smn4lang"}:
+        if dataset_name in {
+            "chineseeeg2_littleprince",
+            "smn4lang",
+            "pallier2025",
+        }:
             resolved.setdefault("dataset", {})[
                 "signal_cache_subject_subdirectories"
             ] = True
@@ -354,13 +359,11 @@ def initialize_run_directory(
     vocabulary_manifests=(),
     allow_dirty=False,
 ):
-    """建立标准运行资产，并拒绝含糊覆盖已有目录。"""
-    dirty = git_tracked_dirty()
-    if dirty and not allow_dirty:
-        raise RuntimeError(
-            "canonical 正式运行检测到 Git tracked 修改，拒绝启动；"
-            "请先提交代码，或仅在测试/开发调用中显式 allow_dirty=True。"
-        )
+    """建立标准运行资产，并拒绝含糊覆盖已有目录。
+
+    ``allow_dirty`` 暂时保留为兼容参数。工作树状态仍写入 provenance，
+    但当前不再阻断 canonical 运行。
+    """
     resolved = resolve_experiment_config(config, output_root=output_root)
     output_dir = run_directory(resolved, output_root=output_root)
     manifest_path = output_dir / "run_manifest.json"

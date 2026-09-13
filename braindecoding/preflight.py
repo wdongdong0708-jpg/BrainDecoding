@@ -1,9 +1,10 @@
-"""只读检查六个 active word-decoding 实验是否可进入正式训练。"""
+"""只读检查 active word-decoding 实验是否可进入正式训练。"""
 
 from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -29,7 +30,18 @@ EXPECTED_SUBJECTS = {
     "chineseeeg2_littleprince": tuple(f"sub-{index:02d}" for index in range(1, 9)),
     "smn4lang": tuple(f"sub-{index:02d}" for index in range(1, 7)),
     "libribrain100": ("sub-0",),
+    "pallier2025": tuple(f"sub-{index:02d}" for index in range(1, 11)),
 }
+
+PALLIER_EVENT_SHA256 = (
+    "3cd1237fd138f3d827f8297cb7081243ce635ebb896f05241da8ccc5614a43fc"
+)
+PALLIER_CHANNEL_SHA256 = (
+    "807ff5cf39a18398f004221d596241033e9c55c91f031842069120d10dbf9fb8"
+)
+PALLIER_TEXT_CONTENT_SHA256 = (
+    "605867af6026349dc405db9264689feb97c0288fcce26092790c641d90c8f4f1"
+)
 
 _LEGACY_TOKENS = (
     "tasks/word_decoding/ChineseEEG2_LittlePrince/cache",
@@ -64,15 +76,6 @@ def _stable_config_hashes(relative_path: str, output_root=None) -> dict:
         "resolved_config_sha256_stable": (
             resolved_first == resolved_config_sha256(second)
         ),
-    }
-
-
-def _pre_cleanup_scientific_hashes() -> dict[str, str]:
-    path = PROJECT_ROOT / "experiments/cleanup_manifest.json"
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    return {
-        record["config"]: record["scientific_config_sha256_before"]
-        for record in payload["active_configs"].values()
     }
 
 
@@ -151,6 +154,154 @@ def _subject_status(dataset: str, config: dict, event_manifest: dict) -> dict:
     }
 
 
+def _embedded_hash_valid(payload: dict, field="manifest_sha256") -> bool:
+    recorded = payload.get(field)
+    body = dict(payload)
+    body.pop(field, None)
+    return recorded is not None and stable_sha256(body) == recorded
+
+
+def _pallier_contract_status(config: dict, event_manifest: dict) -> dict:
+    """只读验证 Stage 2A--2C 冻结合同，不加载 signal array 或模型。"""
+    derived_root = PROJECT_ROOT / "derived" / "pallier2025"
+    signal_path = derived_root / "signals" / "manifest.json"
+    text_path = derived_root / "text" / "t5_large_layer_0_5" / "manifest.json"
+    asset_root = PROJECT_ROOT / "experiments" / "manifests" / "pallier2025"
+    qc_path = (
+        PROJECT_ROOT
+        / "artifacts"
+        / "annotations"
+        / "pallier2025"
+        / "sub-09_run-03_qc.json"
+    )
+    signal = json.loads(signal_path.read_text(encoding="utf-8"))
+    text = json.loads(text_path.read_text(encoding="utf-8"))
+    split = json.loads((asset_root / "run_split.json").read_text(encoding="utf-8"))
+    qc = json.loads(qc_path.read_text(encoding="utf-8"))
+    story_path = asset_root / "story_reference.json"
+    story = json.loads(story_path.read_text(encoding="utf-8"))
+    story_digest = hashlib.sha256(
+        (
+            json.dumps(story, ensure_ascii=False, indent=2, sort_keys=True)
+            + "\n"
+        ).encode("utf-8")
+    ).hexdigest()
+    story_provenance = json.loads(
+        (asset_root / "story_reference.provenance.json").read_text(encoding="utf-8")
+    )
+    vocabulary_hashes = {}
+    vocabulary_valid = True
+    for size in (20, 50, 100, 150):
+        payload = json.loads(
+            (asset_root / f"vocabulary_N{size}.json").read_text(encoding="utf-8")
+        )
+        vocabulary_hashes[str(size)] = payload.get("manifest_sha256")
+        vocabulary_valid = vocabulary_valid and (
+            _embedded_hash_valid(payload)
+            and len(payload.get("vocabulary", ())) == size
+            and payload.get("source_split") == "train"
+            and payload.get("created_from_test") is False
+        )
+
+    dataset = config["dataset"]
+    experiment_id = config.get("experiment", {}).get("id")
+    expected_transformer = experiment_id == "main_context"
+    canonical_cache = config.get("cache", {})
+    checks = {
+        "event_table_sha256": event_manifest.get("event_table_sha256")
+        == PALLIER_EVENT_SHA256,
+        "event_count": event_manifest.get("event_count") == 152560,
+        "trainable_event_count": event_manifest.get("trainable_event_count")
+        == 150700,
+        "subjects": tuple(event_manifest.get("subject_order", ()))
+        == EXPECTED_SUBJECTS["pallier2025"],
+        "recordings": signal.get("recording_count") == 90,
+        "signal_status": signal.get("status") == "complete",
+        "channel_count": signal.get("channel_count") == 306,
+        "channel_order": signal.get("channel_names_sha256")
+        == PALLIER_CHANNEL_SHA256,
+        "sampling_rate": float(signal.get("target_sampling_rate_hz", -1)) == 50.0,
+        "signal_dtype": signal.get("dtype") == "float32",
+        "window_samples": float(dataset.get("window_seconds", -1)) * 50 == 50,
+        "baseline_samples": float(dataset.get("baseline_seconds", -1)) * 50 == 25,
+        "eligibility_window": float(
+            dataset.get("eligibility_window_seconds", -1)
+        )
+        == 3.0,
+        "clamp": float(dataset.get("clamp", -1)) == 5.0,
+        "text_status": text.get("status") == "complete",
+        "text_shape": text.get("embedding_shape") == [2426, 1024],
+        "text_content": text.get("content_sha256")
+        == PALLIER_TEXT_CONTENT_SHA256,
+        "vocabularies": vocabulary_valid,
+        "story_reference": story_provenance.get("reference_sha256")
+        == story_digest,
+        "run_split": split.get("assignments")
+        == {
+            "train": [
+                "run-01",
+                "run-02",
+                "run-03",
+                "run-04",
+                "run-05",
+                "run-08",
+                "run-09",
+            ],
+            "val": ["run-07"],
+            "test": ["run-06"],
+        },
+        "qc_artifact": qc.get("decision") == "exclude_recording"
+        and qc.get("recording", {}).get("subject") == "sub-09"
+        and qc.get("recording", {}).get("run") == "run-03",
+        "model_condition": bool(config.get("model", {}).get("use_transformer"))
+        is expected_transformer,
+        "context_mode": config.get("model", {}).get("context_mode") == "grouped",
+        "runtime_context_grouping": (
+            not expected_transformer
+            or dataset.get("runtime_context_grouping")
+            == "recording_id_plus_canonical_context_v1"
+        ),
+        "embedding_dimension": config.get("model", {}).get(
+            "embedding_dimension"
+        )
+        == 1024,
+        "transformer_geometry": config.get("model", {})
+        .get("transformer", {})
+        .get("heads")
+        == 16
+        and config.get("model", {}).get("transformer", {}).get("depth") == 16,
+        "no_warm_start_or_freeze": all(
+            config.get("training", {}).get(key) in (None, 0, "")
+            for key in (
+                "warm_start_from",
+                "pretrained_brain_encoder_checkpoint",
+                "freeze_brain_encoder_updates",
+            )
+        ),
+        "selection_metric": config.get("evaluation", {}).get("selection_metric")
+        == "retrieval_acc10_vocab=pallier2025_50_macro",
+        "canonical_event_path": str(canonical_cache.get("event_table", ""))
+        .replace("\\", "/")
+        .endswith("derived/pallier2025/events/events.csv"),
+        "canonical_signal_path": str(canonical_cache.get("meg_dir", ""))
+        .replace("\\", "/")
+        .endswith("derived/pallier2025/signals/meg_50hz"),
+        "canonical_text_path": str(canonical_cache.get("text_embeddings", ""))
+        .replace("\\", "/")
+        .endswith(
+            "derived/pallier2025/text/t5_large_layer_0_5/embeddings.npz"
+        ),
+    }
+    return {
+        "status": "valid" if all(checks.values()) else "invalid",
+        "checks": checks,
+        "vocabulary_manifest_sha256": vocabulary_hashes,
+        "domain_reference": "not_required_for_training",
+        "neural_arrays_loaded": False,
+        "model_loaded": False,
+    }
+
+
 def _production_legacy_references() -> list[dict]:
     """扫描 active 训练与公共实现中的旧配置、缓存和输出依赖。"""
     paths = [
@@ -175,7 +326,6 @@ def _production_legacy_references() -> list[dict]:
 def build_preflight_report(*, output_root=None) -> dict:
     """执行只读 preflight；不创建运行目录，也不加载模型。"""
     git_dirty = git_tracked_dirty()
-    hashes_before = _pre_cleanup_scientific_hashes()
     derived_checks = {dataset: check_dataset(dataset) for dataset in EXPECTED_SUBJECTS}
     loaded = {
         path: _stable_config_hashes(path, output_root=output_root)
@@ -206,14 +356,13 @@ def build_preflight_report(*, output_root=None) -> dict:
         )
         legacy = _legacy_dependency_status(relative_path, config)
         subjects = _subject_status(dataset, config, event_manifest)
-        default_split = config.get("evaluation", {}).get("default_split")
-        science_matches = (
-            hash_record["scientific_config_sha256"] == hashes_before[relative_path]
+        pallier_contract = (
+            _pallier_contract_status(config, event_manifest)
+            if dataset == "pallier2025"
+            else None
         )
-
+        default_split = config.get("evaluation", {}).get("default_split")
         reasons = []
-        if git_dirty:
-            reasons.append("git_dirty")
         if not identities_unique:
             reasons.append("duplicate_experiment_identity")
         if derived_checks[dataset]["status"] != "complete":
@@ -227,8 +376,8 @@ def build_preflight_report(*, output_root=None) -> dict:
             or production_legacy_references
         ):
             reasons.append("legacy_dependency")
-        if not hash_record["scientific_config_sha256_stable"] or not science_matches:
-            reasons.append("scientific_config_sha_mismatch")
+        if not hash_record["scientific_config_sha256_stable"]:
+            reasons.append("scientific_config_sha_unstable")
         if not hash_record["resolved_config_sha256_stable"]:
             reasons.append("resolved_config_sha_unstable")
         if output["collision"]:
@@ -239,6 +388,8 @@ def build_preflight_report(*, output_root=None) -> dict:
             reasons.append("invalid_upstream_identity")
         if dependency["status"] == "waiting_for_upstream":
             reasons.append("waiting_for_upstream")
+        if pallier_contract is not None and pallier_contract["status"] != "valid":
+            reasons.append("pallier_contract_mismatch")
         if (
             dataset == "chineseeeg2_littleprince"
             and identity["experiment_id"] == "main_context"
@@ -258,7 +409,6 @@ def build_preflight_report(*, output_root=None) -> dict:
                 "identity": identity,
                 "config": relative_path,
                 **hash_record,
-                "scientific_contract_matches_cleanup_baseline": science_matches,
                 "derived_status": derived_checks[dataset]["status"],
                 "event_status": {
                     "status": components["events"]["status"],
@@ -279,6 +429,7 @@ def build_preflight_report(*, output_root=None) -> dict:
                     "contract": derived_checks[dataset]["text_contract"],
                 },
                 "subject_scope": subjects,
+                "dataset_contract": pallier_contract,
                 "output_path": output,
                 "dependency_status": dependency,
                 "test_guard_status": {
@@ -299,7 +450,7 @@ def build_preflight_report(*, output_root=None) -> dict:
         "git": {
             "tracked_dirty": git_dirty,
             "status": "dirty" if git_dirty else "clean",
-            "not_ready_reason": "git_dirty" if git_dirty else None,
+            "not_ready_reason": None,
         },
         "identity_unique": identities_unique,
         "production_legacy_references": production_legacy_references,

@@ -10,9 +10,6 @@ from braindecoding.config import (
     load_yaml_with_extends,
     project_path,
 )
-from braindecoding.tasks.sequence_decoding.chineseeeg_sr.train import (
-    load_config as load_chineseeeg_sr_config,
-)
 from braindecoding.tasks.word_decoding.chineseeeg2_littleprince.train import 载入配置
 from braindecoding.tasks.word_decoding.libribrain100.train import load_config as load_libribrain_config
 from braindecoding.tasks.word_decoding.smn4lang.train import load_config as load_smn4lang_config
@@ -30,11 +27,6 @@ DATASET_ROOT_CONFIGS = (
         "configs/word_decoding/chineseeeg2_littleprince/base.yaml",
         "${BRAINDATA_ROOT}/ChineseEEG-2/PassiveListening",
         "D:/dataset/ChineseEEG-2/PassiveListening",
-    ),
-    (
-        "configs/ChineseEEG_SR.yaml",
-        "${BRAINDATA_ROOT}/ChineseEEG",
-        "D:/dataset/ChineseEEG",
     ),
     (
         "configs/word_decoding/libribrain100/base.yaml",
@@ -349,15 +341,6 @@ def test_tracked_configs_do_not_contain_author_machine_drive_paths():
         assert "D:/" not in path.read_text(encoding="utf-8"), path
 
 
-def test_chineseeeg_sr_entry_resolves_legacy_dataset_path(monkeypatch):
-    """序列任务入口也必须通过公共加载器展开数据根目录。"""
-    monkeypatch.setenv("BRAINDATA_ROOT", "D:/dataset")
-    config = load_chineseeeg_sr_config(
-        PROJECT_ROOT / "configs/ChineseEEG_SR.yaml"
-    )
-    assert Path(config["dataset"]["root"]) == Path("D:/dataset/ChineseEEG")
-
-
 def test_training_entries_use_shared_config_primitives():
     forbidden_functions = {
         "project_path",
@@ -389,7 +372,10 @@ def test_active_word_configs_have_only_canonical_inheritance_and_data_paths(monk
         "BRAINDECODING_MODEL_ROOT", "D:/code/dascoli-word-decoding/models"
     )
     configs = sorted((PROJECT_ROOT / "configs/word_decoding").rglob("*.yaml"))
-    assert len(configs) == 9
+    base_configs = [path for path in configs if path.name == "base.yaml"]
+    experiment_configs = [path for path in configs if path.name != "base.yaml"]
+    assert len(base_configs) == 4
+    assert len(experiment_configs) == 8
     for path in configs:
         raw = path.read_text(encoding="utf-8")
         assert "tasks/word_decoding/" not in raw

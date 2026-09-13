@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sys
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -44,7 +46,9 @@ def _signal_config():
     }
 
 
-def test_frozen_preprocessing_contract_order_and_explicit_exclusions():
+def test_frozen_preprocessing_contract_order_and_explicit_exclusions(monkeypatch):
+    # 静态合同测试不需要为读取版本字符串初始化完整 MNE。
+    monkeypatch.setitem(sys.modules, "mne", SimpleNamespace(__version__="test"))
     contract = pallier2025.preprocessing_contract(_signal_config())
     assert contract["operation_order"] == [
         "mne_read_raw_fif_allow_maxshield",

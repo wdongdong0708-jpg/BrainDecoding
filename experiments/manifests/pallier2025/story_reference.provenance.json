@@ -1,0 +1,90 @@
+{
+  "asset_type": "story_reference_provenance",
+  "dataset": "pallier2025",
+  "deduplication_key": [
+    "运行编号",
+    "BIDS事件行号"
+  ],
+  "domain_reference": {
+    "status": "not_frozen"
+  },
+  "event_table": "derived/pallier2025/events/events.csv",
+  "event_table_sha256": "3cd1237fd138f3d827f8297cb7081243ce635ebb896f05241da8ccc5614a43fc",
+  "frequency_unit": "material_word_occurrence",
+  "generator": "braindecoding.data.pallier2025.build_protocol_assets",
+  "generator_sha256": "39f1dd49dd02cebd22008abd668d6558340574a7f6021dc3379926e9d7c34d08",
+  "includes_test": true,
+  "includes_train": true,
+  "includes_val": true,
+  "language": "fr",
+  "manifest_sha256": "076be53c58c203576d14332bd4a266bf8eae96e8edc4f813503cdab3b61fa5d1",
+  "material_fingerprints": [
+    {
+      "run": "run-01",
+      "text_fingerprint": "5bd28197f912db9e48c2a9ff0346cb0c546f356b5d11a42d71d01385afe48394",
+      "token_count": 1614
+    },
+    {
+      "run": "run-02",
+      "text_fingerprint": "485ce632844265d4081fd8b834fa72b1e9059effa939fdcd442f8a259ed42461",
+      "token_count": 1768
+    },
+    {
+      "run": "run-03",
+      "text_fingerprint": "bf63ae1ac1c15dc53729c5f0836f1a3086c3b5bcbe6ff66290a1f9223841ac3f",
+      "token_count": 1860
+    },
+    {
+      "run": "run-04",
+      "text_fingerprint": "fe5cd567fbea50a6c9e78f0185fd3961329bdd6987abd7f4b0ac7cf9801a6d3b",
+      "token_count": 1641
+    },
+    {
+      "run": "run-05",
+      "text_fingerprint": "940c26287d0227e0200eb9e18d099db22272cbef9a8424f65f6c91d4744eaae4",
+      "token_count": 1520
+    },
+    {
+      "run": "run-06",
+      "text_fingerprint": "8cf319b609c5379afe04233684408df9650ad94b534d04b7fb17b5d9f208371c",
+      "token_count": 1845
+    },
+    {
+      "run": "run-07",
+      "text_fingerprint": "6fc6e101268fc1c7762a112f8db89938602fa868a7dc982f75f0d0cb61733690",
+      "token_count": 1696
+    },
+    {
+      "run": "run-08",
+      "text_fingerprint": "44e2bca5d3109f2440bb413c628613ea8f1796267a5d2e4edbba173b7109b690",
+      "token_count": 1516
+    },
+    {
+      "run": "run-09",
+      "text_fingerprint": "7d2d33f90c1d9cc61b626bcc303d02208de1ccdc06f79e03ed1dcf369bd062ea",
+      "token_count": 1796
+    }
+  ],
+  "normalization": "strip_lower_preserve_french_accents_and_tokenization",
+  "reference_sha256": "88c46f22d1fd959bb3cad9235462cd2a36ef76f4fb3a59a95eb862b7473f19d4",
+  "run_03_source_contract": "verified_common_canonical_sequence",
+  "run_03_source_excludes": "sub-09/run-03",
+  "source_materials": [
+    "run-01",
+    "run-02",
+    "run-03",
+    "run-04",
+    "run-05",
+    "run-06",
+    "run-07",
+    "run-08",
+    "run-09"
+  ],
+  "split_independent": true,
+  "subject_repetitions_counted": false,
+  "test_metrics_inspected": false,
+  "test_model_evaluation": "not_run",
+  "test_predictions_generated": false,
+  "token_count": 15256,
+  "type_count": 2426
+}

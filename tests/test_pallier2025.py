@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -55,12 +56,30 @@ def test_pallier_subject_discovery_and_ninety_recording_metadata(tmp_path):
     assert records[-1]["subject"] == "sub-10"
 
 
-def test_pallier_config_uses_word_decoding_canonical_location():
+def test_pallier_config_uses_word_decoding_canonical_location(monkeypatch):
+    monkeypatch.setenv("BRAINDATA_ROOT", "D:/dataset")
     root = Path(__file__).resolve().parents[1]
     expected = root / "configs/word_decoding/pallier2025/base.yaml"
     assert build_derived_data._config_path("pallier2025") == expected
     assert expected.is_file()
     assert not (root / "configs/data/pallier2025.yaml").exists()
+    config = build_derived_data.load_build_config("pallier2025")
+    dataset = config["dataset"]
+    assert dataset["window_start_offset_seconds"] == 0.0
+    assert dataset["window_seconds"] == 1.0
+    assert dataset["eligibility_window_seconds"] == 3.0
+    assert dataset["baseline_seconds"] == 0.5
+    assert dataset["clamp"] == 5.0
+    assert config["text_embedding"] == {
+        "model_name": "t5-large",
+        "layer_fraction": 0.5,
+        "token_aggregation": "mean",
+        "embedding_dimension": 1024,
+        "batch_size": 32,
+        "device": "cpu",
+        "local_files_only": True,
+        "word_normalization": "canonical_standard_word",
+    }
 
 
 def test_frozen_run_split_is_seven_one_one_and_run_level():
@@ -93,6 +112,40 @@ def test_frozen_run_split_is_seven_one_one_and_run_level():
 )
 def test_french_normalization_preserves_accents_and_tokenization(source, expected):
     assert pallier2025.normalize_french_word(source) == expected
+
+
+def test_frozen_word_window_contract_and_window_extraction():
+    contract = pallier2025.word_window_contract()
+    assert contract == {
+        "version": "word_1s_support_3s_baseline_0p5_v1",
+        "window_start_offset_seconds": 0.0,
+        "window_seconds": 1.0,
+        "eligibility_window_seconds": 3.0,
+        "baseline_seconds": 0.5,
+        "clamp": 5.0,
+        "sampling_rate_hz": 50.0,
+        "window_samples": 50,
+        "baseline_samples": 25,
+        "continuous_signal_includes_baseline": False,
+        "continuous_signal_includes_clamp": False,
+    }
+    continuous = np.tile(np.arange(100, dtype=np.float32), (2, 1))
+    before = continuous.copy()
+    window = pallier2025.extract_word_window(
+        continuous,
+        0.0,
+        {
+            "source_first_samp": 0,
+            "source_sampling_rate_hz": 1000.0,
+            "output_sampling_rate_hz": 50.0,
+        },
+    )
+    assert window.shape == (2, 50)
+    assert window.dtype == np.float32
+    assert np.allclose(window[:, :25].mean(axis=1), 0.0)
+    assert float(window.min()) == -5.0
+    assert float(window.max()) == 5.0
+    assert np.array_equal(continuous, before)
 
 
 def test_extra_info_blank_tokens_are_removed_before_alignment(tmp_path):
@@ -221,10 +274,10 @@ def test_material_validation_ignores_only_fully_excluded_recording():
         validate_event_table(pd.concat([first, partially_excluded], ignore_index=True))
 
 
-def test_pallier_signal_stage_has_no_model_or_checkpoint_code():
+def test_pallier_data_module_has_no_checkpoint_or_model_evaluation_code():
     source = Path(pallier2025.__file__).read_text(encoding="utf-8")
-    assert "import torch" not in source
     assert "torch.load" not in source
+    assert "torch.save" not in source
     assert "preload=True" not in source
 
 
@@ -259,17 +312,118 @@ def test_local_pallier_event_product_and_cli_check(monkeypatch):
         "test": ["run-06"],
     }
     result = build_derived_data.check_dataset("pallier2025")
-    assert result["status"] == "incomplete"
+    assert result["status"] == "complete"
     assert result["components"]["events"] == "complete"
-    assert result["components"]["signals"] in {"missing", "complete"}
-    assert result["components"]["text"] == "missing"
-    if result["components"]["signals"] == "complete":
-        assert result["signal_coverage"] == {
-            "expected_recordings": 90,
-            "signal_products": 90,
-            "missing": 0,
-            "extra": 0,
-            "channel_count": 306,
-            "trainable_windows_in_range": True,
-        }
+    assert result["components"]["signals"] == "complete"
+    assert result["components"]["text"] == "complete"
+    assert result["signal_coverage"] == {
+        "expected_recordings": 90,
+        "signal_products": 90,
+        "missing": 0,
+        "extra": 0,
+        "channel_count": 306,
+        "trainable_windows_in_range": True,
+    }
+    assert result["text_contract"]["word_count"] == 2426
     assert result["test_model_evaluation_performed"] is False
+
+
+def test_local_pallier_event_table_did_not_drift_in_stage_2c():
+    root = Path(__file__).resolve().parents[1]
+    path = root / "derived/pallier2025/events/events.csv"
+    assert build_derived_data.sha256_file(path) == (
+        "3cd1237fd138f3d827f8297cb7081243ce635ebb896f05241da8ccc5614a43fc"
+    )
+
+
+def test_material_view_counts_each_story_position_once_and_ignores_qc_recording():
+    root = Path(__file__).resolve().parents[1]
+    table = pallier2025.load_event_table(
+        root / "derived/pallier2025/events/events.csv"
+    )
+    material = pallier2025.material_word_view(table)
+    assert len(material) == 15256
+    assert not material.duplicated(["运行编号", "BIDS事件行号"]).any()
+    assert material.groupby("运行编号").size().to_dict() == {
+        "run-01": 1614,
+        "run-02": 1768,
+        "run-03": 1860,
+        "run-04": 1641,
+        "run-05": 1520,
+        "run-06": 1845,
+        "run-07": 1696,
+        "run-08": 1516,
+        "run-09": 1796,
+    }
+    run03 = material[material["运行编号"].eq("run-03")]
+    assert run03["_material_source_subject"].eq("sub-01").all()
+
+
+def test_pallier_protocol_assets_are_train_only_stable_and_split_independent():
+    root = Path(__file__).resolve().parents[1]
+    event_path = root / "derived/pallier2025/events/events.csv"
+    first = pallier2025.build_protocol_assets(event_path)
+    second = pallier2025.build_protocol_assets(event_path)
+    assert first == second
+    for size in (20, 50, 100, 150):
+        vocabulary = first[f"vocabulary_N{size}.json"]
+        assert vocabulary["source_split"] == "train"
+        assert vocabulary["created_from_test"] is False
+        assert vocabulary["frequency_unit"] == "material_word_occurrence"
+        assert vocabulary["source_split_units"] == [
+            "pallier2025|run-01",
+            "pallier2025|run-02",
+            "pallier2025|run-03",
+            "pallier2025|run-04",
+            "pallier2025|run-05",
+            "pallier2025|run-08",
+            "pallier2025|run-09",
+        ]
+        assert len(vocabulary["vocabulary"]) == size
+        ranked = [
+            (word, vocabulary["word_counts"][word])
+            for word in vocabulary["vocabulary"]
+        ]
+        assert ranked == sorted(ranked, key=lambda item: (-item[1], item[0]))
+    reference = first["story_reference.json"]
+    provenance = first["story_reference.provenance.json"]
+    assert sum(reference.values()) == 15256
+    assert len(reference) == 2426
+    assert provenance["source_materials"] == list(pallier2025.RUNS)
+    assert provenance["subject_repetitions_counted"] is False
+    assert provenance["domain_reference"]["status"] == "not_frozen"
+    assert provenance["includes_train"] is True
+    assert provenance["includes_val"] is True
+    assert provenance["includes_test"] is True
+
+
+def test_local_pallier_text_product_is_reference_gated_and_reproducible():
+    root = Path(__file__).resolve().parents[1]
+    manifest = pallier2025.validate_text_manifest(
+        root / "derived/pallier2025/text/t5_large_layer_0_5/manifest.json"
+    )
+    assert manifest["word_type_count"] == 2426
+    assert manifest["embedding_shape"] == [2426, 1024]
+    assert manifest["dtype"] == "float32"
+    assert manifest["reference_fixture"]["tokens"] == list(
+        pallier2025.FRENCH_REFERENCE_TOKENS
+    )
+    assert manifest["reference_fixture"]["bitwise_equal"] is True
+    assert manifest["reference_fixture"]["different_element_count"] == 0
+    assert manifest["canonical_rebuild"]["bitwise_equal"] is True
+    assert manifest["test_model_evaluation"] == "not_run"
+    assert manifest["test_predictions_generated"] is False
+    assert manifest["test_metrics_inspected"] is False
+
+
+def test_stage_2d_adds_only_two_active_experiments_and_no_checkpoint():
+    root = Path(__file__).resolve().parents[1]
+    assert not list((root / "derived/pallier2025").rglob("*.pt"))
+    config_root = root / "configs/word_decoding/pallier2025"
+    assert sorted(path.name for path in config_root.glob("*.yaml")) == ["base.yaml"]
+    assert [path.name for path in config_root.rglob("main_word.yaml")] == [
+        "main_word.yaml"
+    ]
+    assert [path.name for path in config_root.rglob("main_context.yaml")] == [
+        "main_context.yaml"
+    ]

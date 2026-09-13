@@ -3,16 +3,23 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.metadata
 import json
 import os
 import time
+from collections import Counter
 from difflib import SequenceMatcher
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import torch
+from torch.utils.data import Dataset
 
 from braindecoding.data.derived import sha256_file, stable_sha256
+import braindecoding.data.text as text_data
+from braindecoding.data.sensors import vectorview_channel_positions
 from braindecoding.events import (
     CORE_EVENT_COLUMNS,
     align_text_sequences,
@@ -29,6 +36,11 @@ SUBJECTS = tuple(f"sub-{index:02d}" for index in range(1, 11))
 RUNS = tuple(f"run-{index:02d}" for index in range(1, 10))
 CORE_SCOPE = "sub01-10"
 ELIGIBILITY_WINDOW_SECONDS = 3.0
+WINDOW_START_OFFSET_SECONDS = 0.0
+WINDOW_SECONDS = 1.0
+BASELINE_SECONDS = 0.5
+CLAMP = 5.0
+WINDOW_CONTRACT_VERSION = "word_1s_support_3s_baseline_0p5_v1"
 RUN_SPLIT_SALT = "pallier2025-main-run-split-v1"
 DASCOLI_REFERENCE_COMMIT = "e1262ee36aa2fbaa6965e5bfb893f6aaee0dd693"
 SIGNAL_MATERIALIZATION_VERSION = 1
@@ -41,6 +53,18 @@ MAGNETOMETER_COUNT = 102
 GRADIOMETER_COUNT = 204
 CHANNEL_NAMES_SHA256 = (
     "807ff5cf39a18398f004221d596241033e9c55c91f031842069120d10dbf9fb8"
+)
+RUNTIME_CONTEXT_COLUMN = "runtime_context_uid"
+RUNTIME_CONTEXT_GROUPING = "recording_id_plus_canonical_context_v1"
+FRENCH_REFERENCE_TOKENS = (
+    "lorsque",
+    "cinquième",
+    "grâce",
+    "ça",
+    "j",
+    "l",
+    "-là",
+    "1909",
 )
 
 PERSISTED_COLUMNS = (
@@ -61,6 +85,486 @@ def normalize_french_word(word) -> str:
     if pd.isna(word):
         return ""
     return str(word).strip().lower()
+
+
+def word_window_contract(dataset_config: dict | None = None) -> dict:
+    """返回冻结的 1 秒输入与 3 秒资格窗口合同。"""
+    config = dataset_config or {}
+    sampling_rate = float(
+        config.get("target_sampling_rate_hz", TARGET_SAMPLING_RATE_HZ)
+    )
+    window_seconds = float(config.get("window_seconds", WINDOW_SECONDS))
+    baseline_seconds = float(config.get("baseline_seconds", BASELINE_SECONDS))
+    contract = {
+        "version": str(
+            config.get("window_contract_version", WINDOW_CONTRACT_VERSION)
+        ),
+        "window_start_offset_seconds": float(
+            config.get("window_start_offset_seconds", WINDOW_START_OFFSET_SECONDS)
+        ),
+        "window_seconds": window_seconds,
+        "eligibility_window_seconds": float(
+            config.get("eligibility_window_seconds", ELIGIBILITY_WINDOW_SECONDS)
+        ),
+        "baseline_seconds": baseline_seconds,
+        "clamp": float(config.get("clamp", CLAMP)),
+        "sampling_rate_hz": sampling_rate,
+        "window_samples": int(round(window_seconds * sampling_rate)),
+        "baseline_samples": int(round(baseline_seconds * sampling_rate)),
+        "continuous_signal_includes_baseline": False,
+        "continuous_signal_includes_clamp": False,
+    }
+    if contract["window_samples"] != 50 or contract["baseline_samples"] != 25:
+        raise ValueError("Pallier2025 正式窗口必须是 50 样本，baseline 必须是 25 样本。")
+    if contract["eligibility_window_seconds"] != 3.0:
+        raise ValueError("Pallier2025 正式事件资格窗口必须为 3 秒。")
+    return contract
+
+
+def extract_word_window(signal, onset_seconds, signal_metadata, dataset_config=None):
+    """从 continuous product 提取 1 秒窗口，再做 baseline 与 clamp。"""
+    contract = word_window_contract(dataset_config)
+    start = recording_onset_to_sample(
+        float(onset_seconds) + contract["window_start_offset_seconds"],
+        source_first_samp=signal_metadata["source_first_samp"],
+        source_sampling_rate_hz=signal_metadata["source_sampling_rate_hz"],
+        output_sampling_rate_hz=signal_metadata["output_sampling_rate_hz"],
+    )
+    stop = start + contract["window_samples"]
+    continuous = np.asarray(signal)
+    if continuous.ndim != 2 or start < 0 or stop > continuous.shape[1]:
+        raise ValueError("Pallier2025 词窗口超出 canonical continuous signal。")
+    window = continuous[:, start:stop].astype(np.float32, copy=True)
+    baseline = window[:, : contract["baseline_samples"]].mean(
+        axis=1, keepdims=True
+    )
+    window -= baseline
+    np.clip(window, -contract["clamp"], contract["clamp"], out=window)
+    return window
+
+
+def material_word_view(table: pd.DataFrame) -> pd.DataFrame:
+    """去除受试者重复，返回每个故事材料词位置唯一一次的稳定视图。"""
+    required = {
+        "受试者",
+        "运行编号",
+        "BIDS事件行号",
+        "标准词",
+        "数据划分",
+        "划分单元",
+    }
+    missing = sorted(required - set(table.columns))
+    if missing:
+        raise ValueError(f"Pallier2025 材料视图缺少字段：{missing}")
+
+    parts = []
+    for run in RUNS:
+        run_rows = table[table["运行编号"].eq(run)]
+        if run_rows.empty:
+            raise ValueError(f"Pallier2025 事件表缺少材料：{run}")
+        source_subject = next(
+            subject
+            for subject in SUBJECTS
+            if not (subject == "sub-09" and run == "run-03")
+        )
+        source = run_rows[run_rows["受试者"].eq(source_subject)].sort_values(
+            "BIDS事件行号", kind="stable"
+        )
+        expected_rows = source["BIDS事件行号"].astype(int).tolist()
+        expected_words = source["标准词"].map(normalize_french_word).tolist()
+        for subject in SUBJECTS:
+            if subject == "sub-09" and run == "run-03":
+                continue
+            current = run_rows[run_rows["受试者"].eq(subject)].sort_values(
+                "BIDS事件行号", kind="stable"
+            )
+            if (
+                current["BIDS事件行号"].astype(int).tolist() != expected_rows
+                or current["标准词"].map(normalize_french_word).tolist()
+                != expected_words
+            ):
+                raise ValueError(f"同一 Pallier2025 材料跨受试者文本不一致：{subject}/{run}")
+        selected = source.copy()
+        selected["_protocol_word"] = selected["标准词"].map(normalize_french_word)
+        selected["_material_source_subject"] = source_subject
+        parts.append(selected)
+    result = pd.concat(parts, ignore_index=True)
+    keys = ["运行编号", "BIDS事件行号"]
+    if result.duplicated(keys).any():
+        raise ValueError("Pallier2025 材料视图含重复材料词位置。")
+    return result.sort_values(keys, kind="stable").reset_index(drop=True)
+
+
+def _embedding_content_sha256(words, embeddings) -> str:
+    """计算与 NPZ 容器元数据无关的词序和矩阵内容摘要。"""
+    matrix = np.ascontiguousarray(np.asarray(embeddings, dtype=np.float32))
+    digest = hashlib.sha256()
+    digest.update(json.dumps(list(words), ensure_ascii=False).encode("utf-8"))
+    digest.update(str(matrix.shape).encode("ascii"))
+    digest.update(str(matrix.dtype).encode("ascii"))
+    digest.update(matrix.tobytes(order="C"))
+    return digest.hexdigest()
+
+
+def _reference_t5_embeddings(words, config, tokenizer, model, device) -> np.ndarray:
+    """直接逐行复现 T5 层选择和 attention-mask mean，作为数值门。"""
+    import torch
+
+    inputs = tokenizer(
+        list(words),
+        add_special_tokens=False,
+        return_tensors="pt",
+        padding=True,
+        truncation=True,
+    )
+    inputs = {key: value.to(device) for key, value in inputs.items()}
+    with torch.inference_mode():
+        outputs = model(**inputs, output_hidden_states=True)
+    states = outputs.hidden_states
+    layer_index = int(float(config["layer_fraction"]) * len(states) - 1e-6)
+    hidden = states[layer_index]
+    mask = inputs["attention_mask"].unsqueeze(-1).to(hidden.dtype)
+    pooled = (hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp_min(1)
+    return pooled.float().cpu().numpy().astype(np.float32, copy=False)
+
+
+def validate_text_manifest(path, *, expected_config=None) -> dict:
+    """验证 Pallier2025 canonical text manifest 与科学内容摘要。"""
+    path = Path(path)
+    payload = _validate_self_hash(_read_json(path), path=path)
+    if payload.get("dataset") != DATASET_ID or payload.get("status") != "complete":
+        raise ValueError(f"Pallier2025 text manifest 状态无效：{path}")
+    embedding_path = path.parent / payload["embedding_file"]
+    sidecar_path = path.parent / payload["sidecar_file"]
+    if sha256_file(embedding_path) != payload["embedding_file_sha256"]:
+        raise ValueError(f"Pallier2025 text NPZ SHA 漂移：{embedding_path}")
+    if sha256_file(sidecar_path) != payload["sidecar_sha256"]:
+        raise ValueError(f"Pallier2025 text sidecar SHA 漂移：{sidecar_path}")
+    with np.load(embedding_path, allow_pickle=False) as product:
+        words = product["words"].astype(str).tolist()
+        embeddings = np.asarray(product["embeddings"])
+    if embeddings.dtype != np.float32 or len(words) != len(set(words)):
+        raise ValueError("Pallier2025 text dtype 或词型索引无效。")
+    if _embedding_content_sha256(words, embeddings) != payload["content_sha256"]:
+        raise ValueError("Pallier2025 text 内容 SHA 漂移。")
+    if list(embeddings.shape) != payload["embedding_shape"]:
+        raise ValueError("Pallier2025 text shape 漂移。")
+    if expected_config is not None:
+        sidecar = _read_json(sidecar_path)
+        expected_signature = text_data.text_embedding_signature(expected_config)
+        if sidecar.get("signature") != expected_signature:
+            raise ValueError("Pallier2025 text cache signature 与配置不一致。")
+    return payload
+
+
+def build_text_product(event_table, config, output_path, *, event_table_path, force=False):
+    """通过 reference gate 和双重重建生成 canonical T5-large 文本产品。"""
+    output_path = Path(output_path)
+    manifest_path = output_path.parent / "manifest.json"
+    if manifest_path.exists() and not force:
+        manifest = validate_text_manifest(
+            manifest_path, expected_config=config
+        )
+        if manifest.get("event_table_sha256") != sha256_file(event_table_path):
+            raise ValueError("Pallier2025 text product 的事件表合同已经变化。")
+        return manifest_path
+
+    words = text_data.prepared_words(event_table["标准词"], config)
+    tokenizer, model, device = text_data.load_text_model(config)
+    fixture_words = list(FRENCH_REFERENCE_TOKENS)
+    direct = _reference_t5_embeddings(
+        fixture_words, config, tokenizer, model, device
+    )
+    shared = text_data.encode_words(
+        fixture_words,
+        config,
+        tokenizer=tokenizer,
+        model=model,
+        device=device,
+    )
+    difference = np.abs(direct - shared)
+    if not np.array_equal(direct, shared):
+        raise ValueError("Pallier2025 T5 reference fixture 未达到逐元素一致，停止全量物化。")
+
+    rebuild_a = text_data.encode_words(
+        words, config, tokenizer=tokenizer, model=model, device=device
+    )
+    rebuild_b = text_data.encode_words(
+        words, config, tokenizer=tokenizer, model=model, device=device
+    )
+    content_a = _embedding_content_sha256(words, rebuild_a)
+    content_b = _embedding_content_sha256(words, rebuild_b)
+    if not np.array_equal(rebuild_a, rebuild_b) or content_a != content_b:
+        raise ValueError("Pallier2025 canonical T5 重建自身不稳定，停止保存正式产品。")
+
+    text_data.save_text_embedding_cache(output_path, words, rebuild_a, config)
+    rebuild_b_path = output_path.with_name(output_path.stem + ".rebuild_b.npz")
+    text_data.save_text_embedding_cache(rebuild_b_path, words, rebuild_b, config)
+    file_a = sha256_file(output_path)
+    file_b = sha256_file(rebuild_b_path)
+    rebuild_b_path.unlink()
+    rebuild_b_path.with_suffix(".json").unlink()
+    sidecar_path = output_path.with_suffix(".json")
+
+    import torch
+
+    payload = {
+        "schema_version": 1,
+        "dataset": DATASET_ID,
+        "status": "complete",
+        "model_name": str(config["model_name"]),
+        "model_identity": str(
+            getattr(model.config, "_name_or_path", config["model_name"])
+        ),
+        "model_revision": getattr(model.config, "_commit_hash", None),
+        "layer_fraction": float(config["layer_fraction"]),
+        "selected_hidden_layer": int(
+            float(config["layer_fraction"])
+            * (int(getattr(model.config, "num_layers")) + 1)
+            - 1e-6
+        ),
+        "token_aggregation": str(config["token_aggregation"]),
+        "embedding_dimension": int(config["embedding_dimension"]),
+        "dtype": "float32",
+        "normalization": "strip_lower_preserve_french_accents_and_tokenization",
+        "word_type_count": len(words),
+        "embedding_shape": list(rebuild_a.shape),
+        "embedding_file": output_path.name,
+        "embedding_file_sha256": file_a,
+        "sidecar_file": sidecar_path.name,
+        "sidecar_sha256": sha256_file(sidecar_path),
+        "content_sha256": content_a,
+        "event_table_sha256": sha256_file(event_table_path),
+        "reference_fixture": {
+            "tokens": fixture_words,
+            "shape": list(direct.shape),
+            "different_element_count": int(np.count_nonzero(difference)),
+            "max_abs_error": float(difference.max()),
+            "mean_abs_error": float(difference.mean()),
+            "bitwise_equal": True,
+            "reference_content_sha256": _embedding_content_sha256(
+                fixture_words, direct
+            ),
+            "shared_content_sha256": _embedding_content_sha256(
+                fixture_words, shared
+            ),
+        },
+        "canonical_rebuild": {
+            "word_order_stable": True,
+            "shape_stable": True,
+            "bitwise_equal": True,
+            "content_sha256_a": content_a,
+            "content_sha256_b": content_b,
+            "container_file_sha256_a": file_a,
+            "container_file_sha256_b": file_b,
+            "container_file_stable": file_a == file_b,
+        },
+        "software": {
+            "transformers": importlib.metadata.version("transformers"),
+            "torch": torch.__version__,
+            "numpy": np.__version__,
+        },
+        "tokenizer_identity": type(tokenizer).__name__,
+        "tokenizer_revision": tokenizer.init_kwargs.get("_commit_hash"),
+        "model_class": type(model).__name__,
+        "local_files_only": bool(config.get("local_files_only", False)),
+        "test_model_evaluation": "not_run",
+        "test_predictions_generated": False,
+        "test_metrics_inspected": False,
+    }
+    payload["manifest_sha256"] = stable_sha256(payload)
+    _write_json_atomic(manifest_path, payload)
+    validate_text_manifest(manifest_path)
+    return manifest_path
+
+
+def _with_manifest_sha256(payload: dict) -> dict:
+    result = dict(payload)
+    result["manifest_sha256"] = stable_sha256(result)
+    return result
+
+
+def build_protocol_assets(event_table_path) -> dict[str, dict]:
+    """从 frozen event table 构造 Pallier 词表、reference 与支持审计。"""
+    event_table_path = Path(event_table_path)
+    table = load_event_table(event_table_path)
+    material = material_word_view(table)
+    material = material[material["_protocol_word"].ne("")].reset_index(drop=True)
+    event_digest = sha256_file(event_table_path)
+    generator_digest = sha256_file(Path(__file__))
+
+    train = material[material["数据划分"].eq("train")].reset_index(drop=True)
+    counts = Counter(train["_protocol_word"])
+    ranked = sorted(counts, key=lambda word: (-int(counts[word]), word))
+    source_units = sorted(train["划分单元"].astype(str).unique())
+    vocabularies = {}
+    documents = {}
+    for size in (20, 50, 100, 150):
+        vocabulary = ranked[:size]
+        if len(vocabulary) != size:
+            raise ValueError(f"Pallier2025 train 材料不足以冻结 N={size} 词表。")
+        manifest = _with_manifest_sha256(
+            {
+                "asset_type": "candidate_vocabulary",
+                "created_from_test": False,
+                "dataset": DATASET_ID,
+                "evaluation_support_used_for_selection": False,
+                "event_table": "derived/pallier2025/events/events.csv",
+                "event_table_sha256": event_digest,
+                "frequency_unit": "material_word_occurrence",
+                "generator": "braindecoding.data.pallier2025.build_protocol_assets",
+                "generator_sha256": generator_digest,
+                "hash_contract": "sha256(canonical_json_without_manifest_sha256)",
+                "normalization": "strip_lower_preserve_french_accents_and_tokenization",
+                "policy": "frequency_desc_word_asc",
+                "scope": CORE_SCOPE,
+                "source_split": "train",
+                "source_split_units": source_units,
+                "source_units": source_units,
+                "status": "frozen",
+                "train_cutoff_frequency": int(counts[vocabulary[-1]]),
+                "train_token_coverage": float(
+                    train["_protocol_word"].isin(vocabulary).mean()
+                ),
+                "vocabulary": vocabulary,
+                "vocabulary_size": size,
+                "word_counts": {word: int(counts[word]) for word in vocabulary},
+            }
+        )
+        vocabularies[size] = manifest
+        documents[f"vocabulary_N{size}.json"] = manifest
+
+    support = {}
+    for size, vocabulary_manifest in vocabularies.items():
+        vocabulary = list(vocabulary_manifest["vocabulary"])
+        split_records = {}
+        for split in ("val", "test"):
+            words = material.loc[
+                material["数据划分"].eq(split), "_protocol_word"
+            ].tolist()
+            observed = set(words)
+            missing = [word for word in vocabulary if word not in observed]
+            available = not missing
+            split_records[split] = {
+                "candidate_count": size,
+                "supported_candidate_count": size - len(missing),
+                "missing_candidate_count": len(missing),
+                "missing_words": missing,
+                "token_count": len(words),
+                "token_coverage": float(
+                    sum(word in set(vocabulary) for word in words) / len(words)
+                ),
+                "full_ovmi_available": available,
+                "full_ovmi_reason": (
+                    None if available else "missing_true_class_support"
+                ),
+            }
+        support[f"N{size}"] = {
+            "candidate_manifest_sha256": vocabulary_manifest["manifest_sha256"],
+            "splits": split_records,
+        }
+    documents["ovmi_support.json"] = _with_manifest_sha256(
+        {
+            "asset_type": "ovmi_evaluation_support",
+            "dataset": DATASET_ID,
+            "domain_reference": {
+                "available": False,
+                "reason": "domain_reference_not_frozen",
+                "status": "not_frozen",
+            },
+            "full_ovmi_rule": {
+                "missing_true_sample_action": "unavailable",
+                "reason": "missing_true_class_support",
+                "remove_missing_words": False,
+                "silent_metric_substitution": False,
+                "smooth_zero_rows": False,
+            },
+            "generator": "braindecoding.data.pallier2025.build_protocol_assets",
+            "generator_sha256": generator_digest,
+            "status": "frozen_support_audit",
+            "support_audit_used_for_vocabulary_selection": False,
+            "test_labels_used_for_support_audit_only": True,
+            "test_model_evaluation": "not_run",
+            "test_predictions_generated": False,
+            "test_metrics_inspected": False,
+            "vocabularies": support,
+        }
+    )
+
+    story_counts = Counter(material["_protocol_word"])
+    story_reference = {
+        word: int(story_counts[word]) for word in sorted(story_counts)
+    }
+    reference_bytes = (
+        json.dumps(
+            story_reference,
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    ).encode("utf-8")
+    material_fingerprints = []
+    for run, rows in material.groupby("运行编号", sort=False):
+        words = rows.sort_values("BIDS事件行号", kind="stable")[
+            "_protocol_word"
+        ].tolist()
+        material_fingerprints.append(
+            {
+                "run": str(run),
+                "token_count": len(words),
+                "text_fingerprint": text_fingerprint(words),
+            }
+        )
+    documents["story_reference.json"] = story_reference
+    documents["story_reference.provenance.json"] = _with_manifest_sha256(
+        {
+            "asset_type": "story_reference_provenance",
+            "dataset": DATASET_ID,
+            "language": "fr",
+            "source_materials": list(RUNS),
+            "includes_train": True,
+            "includes_val": True,
+            "includes_test": True,
+            "split_independent": True,
+            "normalization": "strip_lower_preserve_french_accents_and_tokenization",
+            "frequency_unit": "material_word_occurrence",
+            "deduplication_key": ["运行编号", "BIDS事件行号"],
+            "subject_repetitions_counted": False,
+            "run_03_source_excludes": "sub-09/run-03",
+            "run_03_source_contract": "verified_common_canonical_sequence",
+            "token_count": int(sum(story_reference.values())),
+            "type_count": len(story_reference),
+            "material_fingerprints": material_fingerprints,
+            "reference_sha256": hashlib.sha256(reference_bytes).hexdigest(),
+            "event_table": "derived/pallier2025/events/events.csv",
+            "event_table_sha256": event_digest,
+            "generator": "braindecoding.data.pallier2025.build_protocol_assets",
+            "generator_sha256": generator_digest,
+            "domain_reference": {"status": "not_frozen"},
+            "test_model_evaluation": "not_run",
+            "test_predictions_generated": False,
+            "test_metrics_inspected": False,
+        }
+    )
+    return documents
+
+
+def write_protocol_assets(event_table_path, output_dir) -> list[Path]:
+    """原子写入 Pallier2025 独立的机器可读协议资产。"""
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    paths = []
+    for name, payload in sorted(build_protocol_assets(event_table_path).items()):
+        path = output_dir / name
+        temporary = path.with_suffix(path.suffix + ".tmp")
+        temporary.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, path)
+        paths.append(path)
+    return paths
 
 
 def _read_json(path) -> dict:
@@ -554,8 +1058,14 @@ def build_event_table(dataset_config: dict) -> tuple[pd.DataFrame, dict]:
     return table, audit
 
 
-def load_event_table(path) -> pd.DataFrame:
-    """读取并验证 Pallier2025 canonical 事件表。"""
+def load_event_table(
+    path,
+    *,
+    split=None,
+    subjects=None,
+    trainable_only=False,
+) -> pd.DataFrame:
+    """读取并验证 Pallier2025 canonical 事件表，可显式筛选训练消费者范围。"""
     table = pd.read_csv(path, keep_default_na=False)
     for column in ("是否可训练", "是否序列末词", "是否内容词"):
         if column in table:
@@ -563,7 +1073,258 @@ def load_event_table(path) -> pd.DataFrame:
                 lambda value: _bool_value(value, field=column)
             )
     validate_event_table(table)
-    return table
+    if split is not None:
+        if split not in {"train", "val", "test"}:
+            raise ValueError(f"Pallier2025 数据划分无效：{split}")
+        table = table[table["数据划分"].eq(split)]
+    if subjects is not None:
+        requested = tuple(str(value) for value in subjects)
+        unknown = sorted(set(requested) - set(SUBJECTS))
+        if unknown:
+            raise ValueError(f"Pallier2025 配置含未知受试者：{unknown}")
+        table = table[table["受试者"].isin(requested)]
+    if trainable_only:
+        table = table[table["是否可训练"].astype(bool)]
+    return table.reset_index(drop=True)
+
+
+def _signal_product_paths(cache_dir, subject, run) -> tuple[Path, Path]:
+    """返回一条 canonical Pall signal 及其 sidecar 路径。"""
+    stem = f"{subject}_{SESSION}_task-listen_{run}_meg"
+    signal_path = Path(cache_dir) / str(subject) / f"{stem}.npy"
+    return signal_path, signal_path.with_suffix(".json")
+
+
+def add_runtime_context_uid(table, max_context_words=128):
+    """建立受试者记录内的运行时上下文键，并验证序列边界。
+
+    Canonical ``上下文编号`` 保持材料级语言上下文身份；模型运行时额外把
+    ``记录编号`` 纳入分组，避免同一材料在不同受试者间发生注意力交互。
+    """
+    required = {"受试者", "记录编号", "上下文编号", "记录内序号"}
+    missing = sorted(required - set(table.columns))
+    if missing:
+        raise ValueError(f"Pallier2025 运行时上下文缺少字段：{missing}")
+    maximum = int(max_context_words)
+    if maximum <= 0:
+        raise ValueError("Pallier2025 max_context_words 必须为正整数。")
+
+    result = table.copy()
+    result[RUNTIME_CONTEXT_COLUMN] = (
+        result["记录编号"].astype(str)
+        + "|"
+        + result["上下文编号"].astype(str)
+    )
+    grouped = result.groupby(RUNTIME_CONTEXT_COLUMN, sort=False)
+    if grouped["受试者"].nunique().gt(1).any():
+        raise ValueError("Pallier2025 运行时上下文跨受试者。")
+    if grouped["记录编号"].nunique().gt(1).any():
+        raise ValueError("Pallier2025 运行时上下文跨 recording。")
+    sizes = grouped.size()
+    oversized = sizes[sizes.gt(maximum)]
+    if not oversized.empty:
+        raise ValueError(
+            f"Pallier2025 运行时上下文超过 max_context_words={maximum}："
+            f"{oversized.index[0]}={int(oversized.iloc[0])}"
+        )
+    for context_uid, rows in grouped:
+        order = pd.to_numeric(rows["记录内序号"], errors="coerce")
+        if order.isna().any() or (np.diff(order.to_numpy()) <= 0).any():
+            raise ValueError(
+                f"Pallier2025 运行时上下文记录内序号未严格递增：{context_uid}"
+            )
+    return result
+
+
+def runtime_context_statistics(table, max_context_words=128) -> dict:
+    """汇总 Pallier 受试者记录内运行时上下文的只读统计。"""
+    runtime = add_runtime_context_uid(table, max_context_words=max_context_words)
+    grouped = runtime.groupby(RUNTIME_CONTEXT_COLUMN, sort=False)
+    sizes = grouped.size()
+    return {
+        "context_count": int(len(sizes)),
+        "mean_words": float(sizes.mean()) if len(sizes) else 0.0,
+        "median_words": float(sizes.median()) if len(sizes) else 0.0,
+        "maximum_words": int(sizes.max()) if len(sizes) else 0,
+        "cross_subject_groups": int(grouped["受试者"].nunique().gt(1).sum()),
+        "cross_recording_groups": int(
+            grouped["记录编号"].nunique().gt(1).sum()
+        ),
+        "groups_over_maximum": int(sizes.gt(int(max_context_words)).sum()),
+    }
+
+
+@lru_cache(maxsize=8)
+def _open_signal_product(path: str):
+    """只读映射 canonical continuous signal，避免反复载入完整记录。"""
+    return np.load(path, mmap_mode="r")
+
+
+class Pallier2025WordDataset(Dataset):
+    """从冻结事件、连续信号和 T5-large 词向量构造 1 秒词样本。"""
+
+    def __init__(
+        self,
+        table,
+        dataset_config,
+        meg_cache_dir,
+        text_embedding_path,
+        text_embedding_config,
+        *,
+        zero_meg=False,
+    ):
+        source = table.copy()
+        missing = sorted(set(CORE_EVENT_COLUMNS) - set(source.columns))
+        if missing:
+            raise ValueError(f"Pallier2025 Dataset 缺少核心事件字段：{missing}")
+        # Dataset 永远不暴露冻结 QC 已排除或窗口不完整的事件。
+        source = source[source["是否可训练"].astype(bool)].reset_index(drop=True)
+        if source.empty:
+            raise ValueError("Pallier2025 Dataset 没有可训练事件。")
+
+        configured_subjects = tuple(str(value) for value in dataset_config["subjects"])
+        if configured_subjects != SUBJECTS:
+            raise ValueError(
+                "Pallier2025 subject 顺序必须固定为 sub-01 至 sub-10。"
+            )
+        observed_subjects = set(source["受试者"].astype(str))
+        if not observed_subjects.issubset(set(configured_subjects)):
+            raise ValueError("Pallier2025 事件表含配置外受试者。")
+
+        # Canonical 上下文身份不变；运行时分组严格限制在一条受试者 recording 内。
+        self.table = add_runtime_context_uid(
+            source,
+            max_context_words=int(dataset_config.get("max_context_words", 128)),
+        )
+        # 仅在内存中恢复训练批处理所需英文 key；不污染 canonical CSV。
+        aliases = {
+            "event_id": "事件编号",
+            "subject_id": "受试者",
+            "recording_id": "记录编号",
+            "word": "词",
+            "normalized_word": "标准词",
+            "sentence_uid": "上下文编号",
+            "split": "数据划分",
+            "is_trainable": "是否可训练",
+            "onset_seconds": "开始时间",
+        }
+        for target, origin in aliases.items():
+            self.table[target] = self.table[origin]
+
+        self.dataset_config = dict(dataset_config)
+        self.meg_cache_dir = Path(meg_cache_dir)
+        self.zero_meg = bool(zero_meg)
+        self.window_samples = word_window_contract(dataset_config)["window_samples"]
+        self.channel_count = MEG_CHANNEL_COUNT
+        self.subject_map = {
+            subject: index for index, subject in enumerate(configured_subjects)
+        }
+        self.subject_count = len(self.subject_map)
+        self.subject_indices = np.asarray(
+            [self.subject_map[value] for value in self.table["subject_id"].astype(str)],
+            dtype=np.int64,
+        )
+        contexts = self.table[RUNTIME_CONTEXT_COLUMN].astype(str).tolist()
+        context_map = {
+            value: index for index, value in enumerate(dict.fromkeys(contexts))
+        }
+        self.sentence_indices = np.asarray(
+            [context_map[value] for value in contexts], dtype=np.int64
+        )
+
+        signature = text_data.text_embedding_signature(text_embedding_config)
+        self.embedding_map = text_data.load_text_embedding_cache(
+            text_embedding_path, expected_signature=signature
+        )
+        expected_dimension = int(text_embedding_config["embedding_dimension"])
+        missing_words = sorted(
+            set(self.table["normalized_word"].astype(str)) - set(self.embedding_map)
+        )
+        if missing_words:
+            raise KeyError(f"Pallier2025 文本缓存缺少词型：{missing_words[:5]}")
+        if any(
+            value.shape != (expected_dimension,)
+            for value in self.embedding_map.values()
+        ):
+            raise ValueError("Pallier2025 文本向量维数与配置不一致。")
+
+        self.signal_paths = {}
+        self.signal_metadata = {}
+        channel_names = None
+        for row in self.table[
+            ["recording_id", "subject_id", "运行编号"]
+        ].drop_duplicates().itertuples(index=False):
+            recording_id, subject, run = map(str, row)
+            signal_path, sidecar_path = _signal_product_paths(
+                self.meg_cache_dir, subject, run
+            )
+            if not signal_path.is_file() or not sidecar_path.is_file():
+                raise FileNotFoundError(
+                    f"Pallier2025 canonical signal product 缺失：{signal_path}"
+                )
+            metadata = json.loads(sidecar_path.read_text(encoding="utf-8"))
+            if metadata.get("recording_id") != recording_id:
+                raise ValueError(
+                    f"Pallier2025 signal sidecar 记录编号不一致：{sidecar_path}"
+                )
+            if (
+                int(metadata.get("channel_count", -1)) != MEG_CHANNEL_COUNT
+                or metadata.get("channel_names_sha256") != CHANNEL_NAMES_SHA256
+                or float(metadata.get("output_sampling_rate_hz", -1))
+                != TARGET_SAMPLING_RATE_HZ
+                or metadata.get("dtype") != "float32"
+            ):
+                raise ValueError(f"Pallier2025 signal sidecar 合同不一致：{sidecar_path}")
+            current_names = tuple(metadata["channel_names"])
+            channel_names = current_names if channel_names is None else channel_names
+            if current_names != channel_names:
+                raise ValueError("Pallier2025 recording 间通道顺序不一致。")
+            self.signal_paths[recording_id] = signal_path
+            self.signal_metadata[recording_id] = metadata
+
+        self.channel_names = list(channel_names or ())
+        if channel_names_sha256(self.channel_names) != CHANNEL_NAMES_SHA256:
+            raise ValueError("Pallier2025 Dataset 通道顺序 SHA 不一致。")
+        self.channel_positions = vectorview_channel_positions(
+            self.channel_names, self.dataset_config.get("layout_path")
+        )
+
+    def __len__(self):
+        return len(self.table)
+
+    def read_meg(self, index) -> np.ndarray:
+        row = self.table.iloc[int(index)]
+        if self.zero_meg:
+            return np.zeros(
+                (self.channel_count, self.window_samples), dtype=np.float32
+            )
+        recording_id = str(row["recording_id"])
+        recording = _open_signal_product(str(self.signal_paths[recording_id]))
+        return extract_word_window(
+            recording,
+            float(row["onset_seconds"]),
+            self.signal_metadata[recording_id],
+            self.dataset_config,
+        )
+
+    def __getitem__(self, index):
+        row = self.table.iloc[int(index)]
+        word = str(row["normalized_word"])
+        return {
+            "meg": torch.from_numpy(self.read_meg(index)),
+            "text_embedding": torch.from_numpy(
+                np.array(self.embedding_map[word], dtype=np.float32, copy=True)
+            ),
+            "subject_index": torch.tensor(
+                self.subject_indices[int(index)], dtype=torch.long
+            ),
+            "sentence_index": torch.tensor(
+                self.sentence_indices[int(index)], dtype=torch.long
+            ),
+            "word": word,
+            "event_id": str(row["event_id"]),
+            "recording_id": str(row["recording_id"]),
+        }
 
 
 def channel_names_sha256(channel_names) -> str:

@@ -1,25 +1,33 @@
+# 本地生成数据：按目录生命周期忽略，不按文件扩展名猜测职责
 outputs/
+
 artifacts/*
 !artifacts/README.md
+!artifacts/annotations/
+!artifacts/annotations/**
+
 derived/*
 !derived/README.md
-*.npz
-*.csv
-*.json
-!experiments/legacy_results_manifest.json
-!experiments/cleanup_manifest.json
-!experiments/manifests/artifacts.json
-archive/
-reports/legacy/*
-!reports/legacy/README.md
-!reports/legacy/chineseeeg2_legacy_metrics.json
-!reports/legacy/smn4lang_legacy_metrics.json
-!reports/legacy/libribrain100_legacy_metrics.json
 
+# reports 下的表格、图片、导出和历史结果均为可生成或已归档产物
+reports/tables/*
+!reports/tables/.gitkeep
+reports/figures/*
+!reports/figures/.gitkeep
+reports/exports/*
+!reports/exports/.gitkeep
+reports/audits/
+
+# 本机 preflight 快照不是冻结协议；experiments/manifests/ 默认纳入版本控制
+experiments/preflight_report.json
+
+# 本地工具与测试缓存统一收进一个缓存根目录
+.cache/
+.vscode/
 __pycache__/
 *.py[cod]
 *.egg-info/
-.pytest*
+.pytest*/
 .env
 
 # LaTeX 编译产物（不忽略论文 Figure 使用的 PDF）
@@ -33,4 +41,4 @@ paper/manuscript/*.fls
 paper/manuscript/*.fdb_latexmk
 paper/manuscript/*.synctex.gz
 paper/manuscript/main.pdf
-paper/notes
+paper/manuscript/build/

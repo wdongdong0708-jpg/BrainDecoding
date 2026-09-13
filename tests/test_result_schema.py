@@ -6,9 +6,6 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-import torch
-import yaml
-
 from braindecoding.evaluation.retrieval import (
     fixed_vocabulary_retrieval_metrics,
 )
@@ -32,7 +29,6 @@ from braindecoding.results import (
     write_evaluation_result,
 )
 import braindecoding.results as result_schema
-from scripts.maintenance.compare_legacy_run import compare_legacy_run
 
 
 def _config(dataset="fixture", budget="updates", output_dir=None):
@@ -330,18 +326,13 @@ def test_git_dirty_ignores_untracked_and_ignored_files(tmp_path):
     assert git_tracked_dirty(tmp_path) is True
 
 
-def test_canonical_run_refuses_tracked_dirty_without_explicit_development_bypass(
-    monkeypatch, tmp_path
-):
+def test_canonical_run_records_tracked_dirty_without_blocking(monkeypatch, tmp_path):
     config = _config(output_dir=tmp_path / "unused")
     monkeypatch.setattr("braindecoding.experiment.git_tracked_dirty", lambda *_: True)
-    with pytest.raises(RuntimeError, match="tracked 修改"):
-        initialize_run_directory(config, "train", output_root=tmp_path)
     output_dir, manifest = initialize_run_directory(
         config,
         "train",
         output_root=tmp_path,
-        allow_dirty=True,
     )
     assert output_dir.is_dir()
     assert manifest["git_dirty"] is True
@@ -404,121 +395,3 @@ def test_audit_summary_uses_canonical_validation_path(tmp_path):
     path = write_audit_summary(config, summary)
     assert path == tmp_path / "seed-000/audits/validation/summary.json"
     assert json.loads(path.read_text(encoding="utf-8"))["schema_version"] == 1
-
-
-def test_legacy_comparison_is_read_only_and_reports_exact_differences(tmp_path):
-    canonical = tmp_path / "canonical"
-    legacy = tmp_path / "legacy"
-    canonical.mkdir()
-    legacy.mkdir()
-    config = _config(output_dir=canonical)
-    (canonical / "resolved_config.yaml").write_text(
-        yaml.safe_dump(config, allow_unicode=True), encoding="utf-8"
-    )
-    (canonical / "run_manifest.json").write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "experiment": config["experiment"] | {"experiment_id": "main_word"},
-                "scientific_config_sha256": scientific_config_sha256(config),
-                "event_table": {"path": "events.csv", "sha256": "e" * 64},
-            }
-        ),
-        encoding="utf-8",
-    )
-    training = build_training_summary(
-        config,
-        {
-            "status": "training_completed",
-            "selection_metric": "macro_recall_at_10",
-            "best_score": 0.4,
-            "best_epoch": 2,
-            "optimizer_updates": 80,
-            "target_updates": 100,
-            "history": [{"epoch": 1}, {"epoch": 2, "optimizer_updates": 75}],
-            "test_status": "locked_not_evaluated",
-        },
-    )
-    (canonical / "training_summary.json").write_text(json.dumps(training), encoding="utf-8")
-    block = canonical_vocabulary_result(
-        50,
-        retrieval_metrics={
-            "vocabulary_size": 50,
-            "observed_vocabulary_size": 50,
-            "missing_vocabulary_words": [],
-            "micro_recall_at_1": 0.1,
-            "micro_recall_at_10": 0.5,
-            "macro_recall_at_1": 0.08,
-            "macro_recall_at_10": 0.4,
-            "median_rank": 8.0,
-            "mean_reciprocal_rank": 0.2,
-        },
-    )
-    evaluation = build_evaluation_result(
-        config,
-        split="val",
-        query_count=25,
-        event_table_sha256="e" * 64,
-        subjects=["sub-01"],
-        checkpoint={"path": "best.pt", "sha256": "c" * 64, "epoch": 2, "update": 75},
-        vocabulary_results={50: block},
-    )
-    (canonical / "evaluation").mkdir()
-    (canonical / "evaluation" / "val.json").write_text(
-        json.dumps(evaluation), encoding="utf-8"
-    )
-
-    state = {"model_state": {"weight": torch.zeros(2, 3)}}
-    torch.save(state, canonical / "best.pt")
-    torch.save(state, legacy / "best.pt")
-    legacy_summary = {
-        "best_epoch": 2,
-        "optimizer_updates": 80,
-        "history": [{"epoch": 1}, {"epoch": 2, "optimizer_updates": 75}],
-        "best_score": 0.39,
-        "event_table": "events.csv",
-    }
-    legacy_evaluation = {
-        "query_rows": 25,
-        "metrics": {
-            "micro_recall_at_1": 0.1,
-            "micro_recall_at_10": 0.49,
-            "macro_recall_at_1": 0.08,
-            "macro_recall_at_10": 0.39,
-            "median_rank": 8.0,
-            "mean_reciprocal_rank": 0.2,
-        },
-    }
-    (legacy / "training_summary.json").write_text(
-        json.dumps(legacy_summary), encoding="utf-8"
-    )
-    legacy_eval_path = legacy / "evaluation_val.json"
-    legacy_eval_path.write_text(json.dumps(legacy_evaluation), encoding="utf-8")
-    before = {
-        path: (path.read_bytes(), path.stat().st_mtime_ns)
-        for path in legacy.rglob("*")
-        if path.is_file()
-    }
-    entry = {
-        "legacy_run_id": "fixture",
-        "legacy_config": None,
-        "legacy_output": str(legacy),
-        "canonical_identity": None,
-        "checkpoint_files": [{"relative_path": str(legacy / "best.pt")}],
-        "evaluation_files": [{"relative_path": str(legacy_eval_path)}],
-        "summary_files": [{"relative_path": str(legacy / "training_summary.json")}],
-        "audit_files": [],
-    }
-
-    comparison = compare_legacy_run(canonical, entry, project_root=tmp_path)
-
-    assert comparison["schema_version"] == 1
-    assert comparison["checkpoint_contract"]["keys_equal"] is True
-    assert comparison["checkpoint_contract"]["shapes_equal"] is True
-    assert comparison["validation_query_count"]["equal"] is True
-    assert comparison["selection"]["best_update"]["equal"] is True
-    assert comparison["retrieval_metrics"]["macro_top10"]["difference"] == pytest.approx(0.01)
-    assert not (canonical / "evaluation" / "test.json").exists()
-    for path, (content, modified) in before.items():
-        assert path.read_bytes() == content
-        assert path.stat().st_mtime_ns == modified

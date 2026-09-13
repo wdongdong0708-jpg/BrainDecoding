@@ -1,4 +1,4 @@
-"""六个 active experiment 的只读训练前检查测试。"""
+"""active experiment 的只读训练前检查测试。"""
 
 import json
 from pathlib import Path
@@ -23,6 +23,7 @@ def _derived_result(dataset):
         "chineseeeg2_littleprince": (216, 128, 2415, 768),
         "smn4lang": (360, 306, 8685, 768),
         "libribrain100": (12, 306, 5081, 1024),
+        "pallier2025": (90, 306, 2426, 1024),
     }
     count, channels, words, dimension = recordings[dataset]
     return {
@@ -55,14 +56,14 @@ def _clean_report(monkeypatch, output_root):
     return preflight.build_preflight_report(output_root=output_root)
 
 
-def test_preflight_covers_exactly_six_active_configs_without_side_effects(
+def test_preflight_covers_all_active_configs_without_side_effects(
     tmp_path, monkeypatch
 ):
     output_root = tmp_path / "outputs"
     report = _clean_report(monkeypatch, output_root)
-    assert len(report["experiments"]) == 6
+    assert len(report["experiments"]) == 8
     identities = [tuple(item["identity"].values()) for item in report["experiments"]]
-    assert len(identities) == len(set(identities)) == 6
+    assert len(identities) == len(set(identities)) == 8
     assert report["identity_unique"] is True
     assert report["production_legacy_references"] == []
     assert not output_root.exists()
@@ -98,6 +99,9 @@ def test_context_dependencies_wait_for_same_scope_main_word(tmp_path, monkeypatc
         assert dependency["upstream_identity"]["seed"] == context["identity"]["seed"]
         assert context["ready"] == "waiting_for_upstream"
     assert by_key[("libribrain100", "main_context")]["dependency_status"]["status"] == "not_required"
+    assert by_key[("pallier2025", "main_context")]["dependency_status"]["status"] == "not_required"
+    assert by_key[("pallier2025", "main_word")]["ready"] is True
+    assert by_key[("pallier2025", "main_context")]["ready"] is True
 
 
 def test_existing_upstream_checkpoint_makes_context_dependency_ready(
@@ -152,10 +156,13 @@ def test_completed_run_is_reported_as_collision(tmp_path, monkeypatch):
     assert record["ready"] is False
 
 
-def test_git_dirty_is_a_hard_not_ready_reason(tmp_path, monkeypatch):
+def test_git_dirty_is_reported_but_does_not_block_readiness(tmp_path, monkeypatch):
     monkeypatch.setattr(preflight, "git_tracked_dirty", lambda: True)
     monkeypatch.setattr(preflight, "check_dataset", _derived_result)
     report = preflight.build_preflight_report(output_root=tmp_path / "outputs")
-    assert report["git"]["not_ready_reason"] == "git_dirty"
-    assert all(item["ready"] is False for item in report["experiments"])
-    assert all("git_dirty" in item["reasons"] for item in report["experiments"])
+    assert report["git"] == {
+        "tracked_dirty": True,
+        "status": "dirty",
+        "not_ready_reason": None,
+    }
+    assert all("git_dirty" not in item["reasons"] for item in report["experiments"])

@@ -33,8 +33,11 @@ def _run_status(record: dict) -> dict:
     config = record["raw_config"]
     output = run_directory(config)
     manifest = _read_json(output / "run_manifest.json")
+    diagnostic = _read_json(output / "implementation_diagnostic.json")
     dependency = warm_start_checkpoint(config)
-    if manifest is not None:
+    if diagnostic is not None and diagnostic.get("status") == "implementation_diagnostic":
+        status = "implementation_diagnostic"
+    elif manifest is not None:
         status = manifest.get("status")
         if status not in {"running", "failed", "completed"}:
             status = "failed"
@@ -48,6 +51,7 @@ def _run_status(record: dict) -> dict:
         "status": status,
         "run_path": output,
         "manifest": manifest,
+        "diagnostic": diagnostic,
         "dependency": dependency,
         "best_checkpoint": output / "best.pt",
         "validation": output / "evaluation" / "val.json",
@@ -83,6 +87,10 @@ def _task_modules(dataset: str):
         return train, evaluate
     if dataset == "libribrain100":
         from braindecoding.tasks.word_decoding.libribrain100 import evaluate, train
+
+        return train, evaluate
+    if dataset == "pallier2025":
+        from braindecoding.tasks.word_decoding.pallier2025 import evaluate, train
 
         return train, evaluate
     raise ValueError(f"当前 CLI 不支持数据集：{dataset}")
@@ -245,6 +253,8 @@ def _print_status(selector: str | None) -> int:
             print(f"  validation: {'present' if state['validation'].is_file() else 'not_run'}")
             print(f"  audit: {'present' if state['audit'].is_file() else 'not_run'}")
             print("  test: locked_not_evaluated")
+            if state["diagnostic"] is not None:
+                print(f"  diagnostic reason: {state['diagnostic'].get('reason')}")
     return 0
 
 

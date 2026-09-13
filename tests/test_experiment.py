@@ -24,7 +24,6 @@ from braindecoding.experiment import (
 
 CANONICAL_ROOTS = (
     PROJECT_ROOT / "configs" / "word_decoding",
-    PROJECT_ROOT / "configs" / "sequence_decoding",
 )
 CANONICAL_FILES = (
     "word_decoding/chineseeeg2_littleprince/sub01-08/main_word.yaml",
@@ -33,8 +32,8 @@ CANONICAL_FILES = (
     "word_decoding/smn4lang/sub01-06/main_context_warmstart.yaml",
     "word_decoding/libribrain100/sub0/main_word.yaml",
     "word_decoding/libribrain100/sub0/main_context.yaml",
-    "sequence_decoding/chineseeeg1_sr/sub04-10_sub13-14/historical_row_retrieval_fourier_subject.yaml",
-    "sequence_decoding/chineseeeg1_sr/sub04-10_sub13-14/historical_closed_set_loso.yaml",
+    "word_decoding/pallier2025/sub01-10/main_word.yaml",
+    "word_decoding/pallier2025/sub01-10/main_context.yaml",
 )
 ACTIVE_SCIENTIFIC_SHA256 = {
     "word_decoding/chineseeeg2_littleprince/sub01-08/main_word.yaml": "480ac719eb6b3a143a84ebaff5b9163e578bcc0e22142d90b894a01b4f60ec4b",
@@ -43,18 +42,13 @@ ACTIVE_SCIENTIFIC_SHA256 = {
     "word_decoding/smn4lang/sub01-06/main_context_warmstart.yaml": "e4d1c2bfaafad349092e626e6722baae8032c14624cfd7f73111b2a69ccdbdf5",
     "word_decoding/libribrain100/sub0/main_word.yaml": "af6c317dcc0b8e697504d69f887765762bf20394f7f1f7786470dfc6de951617",
     "word_decoding/libribrain100/sub0/main_context.yaml": "bd27d21f8a7ea54c380483a019596223eee5144625a927322319bdd0e6d62385",
+    "word_decoding/pallier2025/sub01-10/main_word.yaml": "aae9935c9505ee69ef4df84a204cac1521da7886f0457846df5eccca73bf5f02",
+    "word_decoding/pallier2025/sub01-10/main_context.yaml": "5f93c715d96b6db671ceda329d0ec2d7d7f8f667a4c6ed7f5225a49627a59682",
 }
 WARM_STARTS = {
     "word_decoding/chineseeeg2_littleprince/sub01-08/main_context.yaml": "main_word",
     "word_decoding/smn4lang/sub01-06/main_context_warmstart.yaml": "main_word",
 }
-ARCHIVE_ONLY_OUTPUTS = (
-    "outputs/ChineseEEG1_SR/LittlePrince_row_retrieval",
-    "outputs/SMN4Lang/word_decoding",
-    "outputs/SMN4Lang/word_decoding_sentence_groups_6400updates",
-)
-
-
 @pytest.fixture(autouse=True)
 def configured_roots(monkeypatch):
     monkeypatch.setenv("BRAINDATA_ROOT", "D:/dataset")
@@ -136,7 +130,7 @@ def test_output_paths_are_derived_from_identity_without_collisions():
 
 
 @pytest.mark.parametrize("canonical,expected", ACTIVE_SCIENTIFIC_SHA256.items())
-def test_active_scientific_config_matches_pre_cleanup_contract(canonical, expected):
+def test_active_scientific_config_matches_frozen_contract(canonical, expected):
     current = resolve_experiment_config(
         load_yaml_with_extends(_canonical_path(canonical))
     )
@@ -307,20 +301,7 @@ def test_run_directory_rejects_missing_manifest_and_changed_config(tmp_path):
         )
 
 
-def test_archive_only_orphans_have_no_runnable_canonical_identity():
-    canonical_outputs = {
-        run_directory(load_yaml_with_extends(path)).relative_to(PROJECT_ROOT).as_posix()
-        for path in _canonical_files()
-    }
-    for orphan in ARCHIVE_ONLY_OUTPUTS:
-        assert not any(orphan in output for output in canonical_outputs)
-
-
 def test_task_loaders_inject_canonical_output_and_warm_start_paths():
-    from braindecoding.tasks.sequence_decoding.chineseeeg_sr.train import (
-        load_config as load_sequence,
-        validate_run_section,
-    )
     from braindecoding.tasks.word_decoding.chineseeeg2_littleprince.train import 载入配置
     from braindecoding.tasks.word_decoding.libribrain100.train import load_config as load_libribrain
     from braindecoding.tasks.word_decoding.smn4lang.train import load_config as load_smn4lang
@@ -355,23 +336,6 @@ def test_task_loaders_inject_canonical_output_and_warm_start_paths():
         / "outputs/word_decoding/libribrain100/sub0/main_context/seed-000"
     )
     assert "pretrained_brain_encoder_checkpoint" not in libribrain["training"]
-
-    sequence = load_sequence(
-        PROJECT_ROOT
-        / "configs/sequence_decoding/chineseeeg1_sr/sub04-10_sub13-14/"
-        "historical_closed_set_loso.yaml"
-    )
-    expected = (
-        PROJECT_ROOT
-        / "outputs/sequence_decoding/chineseeeg1_sr/sub04-10_sub13-14/"
-        "historical_closed_set_loso/seed-042"
-    )
-    assert Path(sequence["training"]["output_dir"]) == expected
-    assert Path(sequence["closed_set_diagnostic"]["output_dir"]) == expected
-    validate_run_section(sequence, closed_set_loso=True)
-    with pytest.raises(ValueError, match="不能运行 training"):
-        validate_run_section(sequence, closed_set_loso=False)
-
 
 def test_canonical_base_files_are_explicitly_non_runnable():
     bases = [path for root in CANONICAL_ROOTS for path in root.rglob("base.yaml")]

@@ -1,0 +1,166 @@
+{
+  "asset_type": "experiment_conditions",
+  "candidate_vocabulary_sizes": {
+    "primary": [
+      20,
+      50,
+      100,
+      150
+    ],
+    "supplementary_exploratory": [
+      200,
+      300,
+      500
+    ],
+    "test_support_may_change_sizes": false
+  },
+  "conditions": {
+    "neural_context.clean": {
+      "status": "implemented"
+    },
+    "neural_context.donor_following": {
+      "status": "exploratory"
+    },
+    "neural_context.donor_swap": {
+      "protocol": {
+        "common_support_query_set": true,
+        "cross_recording_primary": false,
+        "donor_window_must_not_overlap_target": true,
+        "donor_word_must_differ_from_target": true,
+        "same_recording": true,
+        "same_subject": true,
+        "same_window_contract": true,
+        "seeds": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "target_and_context_position_unchanged": true
+      },
+      "status": "exploratory"
+    },
+    "neural_context.structure_only": {
+      "status": "exploratory"
+    },
+    "neural_context.temporal_shift": {
+      "protocol": {
+        "common_support_queries": true,
+        "offset_selection": "train_val_only",
+        "parameter_status": "parameters_not_frozen",
+        "same_recording": true,
+        "same_subject": true,
+        "shift": "deterministic_circular",
+        "source_window_must_not_overlap_target": true,
+        "target_unchanged": true
+      },
+      "status": "missing"
+    },
+    "word.clean": {
+      "status": "implemented"
+    },
+    "word.donor_swap": {
+      "protocol": {
+        "common_support_query_set": true,
+        "cross_recording_primary": false,
+        "donor_window_must_not_overlap_target": true,
+        "donor_word_must_differ_from_target": true,
+        "same_recording": true,
+        "same_subject": true,
+        "same_window_contract": true,
+        "seeds": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "target_and_context_position_unchanged": true
+      },
+      "status": "missing"
+    },
+    "word.temporal_shift": {
+      "protocol": {
+        "common_support_queries": true,
+        "offset_selection": "train_val_only",
+        "parameter_status": "parameters_not_frozen",
+        "same_recording": true,
+        "same_subject": true,
+        "shift": "deterministic_circular",
+        "source_window_must_not_overlap_target": true,
+        "target_unchanged": true
+      },
+      "status": "missing"
+    }
+  },
+  "datasets": {
+    "ChineseEEG2": {
+      "confirmatory_status": "exploratory_or_replication_only",
+      "neural_context": "bounded_semantic_v1",
+      "row_context_role": "historical_structure_prior_control",
+      "test_status": "previously_used_for_exploratory_analysis",
+      "word": {
+        "model.use_transformer": false
+      }
+    },
+    "SMN4Lang": {
+      "confirmatory_status": "eligible_after_multisubject_protocol_freeze",
+      "formal_manifest_status": "canonical_sub01-06_derived_complete",
+      "neural_context": "script_sentence_then_contiguous_chunks",
+      "test_label_status": "inspected_for_support_audit",
+      "test_metrics_inspected": false,
+      "test_model_evaluation": "not_run",
+      "test_neural_data_status": "raw_accessed_for_deterministic_preprocessing_only",
+      "test_predictions_generated": false,
+      "word": {
+        "model.use_transformer": false
+      }
+    }
+  },
+  "domain_reference": {
+    "status": "not_frozen"
+  },
+  "full_ovmi": {
+    "missing_candidate_true_sample": "unavailable",
+    "observed_support_is_not_full_ovmi": true,
+    "remove_missing_candidates": false,
+    "retrieval_and_coverage_remain_reportable": true,
+    "smooth_zero_support_rows": false,
+    "substitute_other_metric": false
+  },
+  "generator": "experiments/generate_manifests.py",
+  "generator_sha256": "18e934562f834128f5d281c2d3dba2bbe18778f277ca690c4f66a36d79ea6acc",
+  "manifest_sha256": "71428f159704c44f13a99aef436f6e7f0069ec7f39571b9dae4e2fa7d0ee1251",
+  "protocol_status": "machine_checkable_assets_frozen_without_test_model_evaluation"
+}

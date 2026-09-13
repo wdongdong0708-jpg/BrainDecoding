@@ -74,10 +74,12 @@ class SentenceBatchSampler(Sampler):
         return count + int(batch_size > 0)
 
 
-def make_loader(dataset, training_config, shuffle):
-    """按句组构建保持现有批次语义的 DataLoader。"""
+def make_loader(dataset, training_config, shuffle, group_column="sentence_uid"):
+    """按指定句组列构建保持现有批次语义的 DataLoader。"""
+    if group_column not in dataset.table:
+        raise KeyError(f"Dataset 缺少批处理分组列：{group_column}")
     sampler = SentenceBatchSampler(
-        dataset.table["sentence_uid"].astype(str).tolist(),
+        dataset.table[group_column].astype(str).tolist(),
         batch_size=int(training_config["batch_size"]),
         shuffle=shuffle,
         seed=int(training_config["seed"]),

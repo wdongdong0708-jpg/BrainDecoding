@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -22,6 +23,8 @@ SELECTORS = {
     "smn4lang/sub01-06/main_context_warmstart",
     "libribrain100/sub0/main_word",
     "libribrain100/sub0/main_context",
+    "pallier2025/sub01-10/main_word",
+    "pallier2025/sub01-10/main_context",
 }
 
 
@@ -66,7 +69,7 @@ def test_package_production_code_has_no_legacy_root_imports():
                 assert all(alias.name.split(".")[0] not in forbidden for alias in node.names), path
 
 
-def test_list_discovers_exactly_six_active_experiments(capsys):
+def test_list_discovers_all_active_experiments(capsys):
     assert {record["selector"] for record in discover_experiment_configs()} == SELECTORS
     assert cli.main(["list"]) == 0
     output = capsys.readouterr().out
@@ -87,6 +90,31 @@ def test_show_and_status_do_not_create_output(tmp_path, monkeypatch, capsys):
     assert cli.main(["status", selector]) == 0
     assert not (tmp_path / "never-created").exists()
     assert "test: locked_not_evaluated" in capsys.readouterr().out
+
+
+def test_status_marks_implementation_diagnostic_without_changing_run_manifest(
+    tmp_path, monkeypatch
+):
+    output = tmp_path / "main_context" / "seed-000"
+    output.mkdir(parents=True)
+    (output / "run_manifest.json").write_text(
+        json.dumps({"status": "completed"}), encoding="utf-8"
+    )
+    (output / "implementation_diagnostic.json").write_text(
+        json.dumps(
+            {
+                "status": "implementation_diagnostic",
+                "reason": "cross_subject_context_mixing",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli, "run_directory", lambda config: output)
+    record = resolve_selector("pallier2025/sub01-10/main_context")
+    state = cli._run_status(record)
+    assert state["status"] == "implementation_diagnostic"
+    assert state["manifest"] == {"status": "completed"}
+    assert state["diagnostic"]["reason"] == "cross_subject_context_mixing"
 
 
 def test_preflight_does_not_create_run_directory(tmp_path, monkeypatch):

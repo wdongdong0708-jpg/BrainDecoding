@@ -556,6 +556,27 @@ def validate_smn_signal_manifest(path, *, config=None) -> dict:
 
 def _validate_text_contract(dataset: str, config: dict, table) -> dict:
     path = Path(config["cache"]["text_embeddings"])
+    if dataset == "pallier2025":
+        manifest = pallier2025.validate_text_manifest(
+            path.parent / "manifest.json",
+            expected_config=config["text_embedding"],
+        )
+        expected_words = pallier2025.material_word_view(table)
+        expected_words = sorted(
+            set(expected_words["标准词"].map(pallier2025.normalize_french_word))
+            - {""}
+        )
+        with np.load(path, allow_pickle=False) as payload:
+            words = payload["words"].astype(str).tolist()
+        if words != expected_words:
+            raise ValueError("Pallier2025 canonical text 必须覆盖全部非空材料标准词型。")
+        return {
+            "word_count": len(words),
+            "shape": manifest["embedding_shape"],
+            "dtype": manifest["dtype"],
+            "all_splits_deterministic_text_materialization": True,
+            "content_sha256": manifest["content_sha256"],
+        }
     metadata_path = path.with_suffix(".json")
     if not path.exists() or not metadata_path.exists():
         raise FileNotFoundError(f"canonical 文本产品不存在：{path}")
@@ -633,8 +654,21 @@ def _build_signals(dataset: str, config: dict, table, *, force=False) -> Path:
     return provenance_path
 
 
-def _build_text(dataset: str, config: dict, table) -> Path:
+def _build_text(dataset: str, config: dict, table, *, force=False) -> Path:
     path = Path(config["cache"]["text_embeddings"])
+    if dataset == "pallier2025":
+        manifest = pallier2025.build_text_product(
+            table,
+            config["text_embedding"],
+            path,
+            event_table_path=config["cache"]["event_table"],
+            force=force,
+        )
+        pallier2025.write_protocol_assets(
+            config["cache"]["event_table"],
+            PROJECT_ROOT / "experiments/manifests/pallier2025",
+        )
+        return manifest
     # 与既有训练入口一致：首轮只物化 train+val 可训练词；test-only 词不参与
     # 当前缓存的词集合或批次组成，正式 test 解锁后再显式增量生成。
     selected = table[
@@ -672,7 +706,11 @@ def _component_manifest_paths(dataset: str, config: dict) -> dict[str, Path]:
     return {
         "events": event_manifest_path(config["cache"]["event_table"]),
         "signals": signal_path,
-        "text": PROJECT_ROOT / "derived" / dataset / "provenance" / "text.json",
+        "text": (
+            Path(config["cache"]["text_embeddings"]).parent / "manifest.json"
+            if dataset == "pallier2025"
+            else PROJECT_ROOT / "derived" / dataset / "provenance" / "text.json"
+        ),
     }
 
 
@@ -685,14 +723,24 @@ def _validate_components(dataset: str, config: dict, table) -> dict:
     event_payload = validate_event_product(
         config["cache"]["event_table"], paths["events"]
     )
-    if dataset == "smn4lang":
+    if dataset == "pallier2025":
+        signal_payload = pallier2025.validate_signal_manifest(
+            paths["signals"], event_table=table
+        )
+        text_payload = pallier2025.validate_text_manifest(
+            paths["text"], expected_config=config["text_embedding"]
+        )
+        coverage = signal_payload["coverage"]
+    elif dataset == "smn4lang":
         signal_payload = validate_smn_signal_manifest(
             paths["signals"], config=config
         )
+        text_payload = validate_step_manifest(paths["text"])
+        coverage = _validate_signal_coverage(dataset, config, table)
     else:
         signal_payload = validate_step_manifest(paths["signals"])
-    text_payload = validate_step_manifest(paths["text"])
-    coverage = _validate_signal_coverage(dataset, config, table)
+        text_payload = validate_step_manifest(paths["text"])
+        coverage = _validate_signal_coverage(dataset, config, table)
     text_contract = _validate_text_contract(dataset, config, table)
     return {
         "events": event_payload,
@@ -809,12 +857,20 @@ def check_dataset(dataset: str) -> dict:
             _dataset_manifest_path(dataset), require_complete=False
         )
         signal_coverage = None
+        text_contract = None
         signal_record = dataset_manifest["components"]["signals"]
         if signal_record["status"] == "complete":
             signal_payload = pallier2025.validate_signal_manifest(
                 PROJECT_ROOT / signal_record["manifest"], event_table=table
             )
             signal_coverage = signal_payload["coverage"]
+        text_record = dataset_manifest["components"]["text"]
+        if text_record["status"] == "complete":
+            pallier2025.validate_text_manifest(
+                PROJECT_ROOT / text_record["manifest"],
+                expected_config=config["text_embedding"],
+            )
+            text_contract = _validate_text_contract(dataset, config, table)
         return {
             "dataset": dataset,
             "status": dataset_manifest["status"],
@@ -825,7 +881,7 @@ def check_dataset(dataset: str) -> dict:
             "event_count": int(len(table)),
             "event_table_sha256": event_payload["event_table_sha256"],
             "signal_coverage": signal_coverage,
-            "text_contract": None,
+            "text_contract": text_contract,
             "dataset_manifest_sha256": dataset_manifest["manifest_sha256"],
             "test_model_evaluation_performed": False,
         }
@@ -879,9 +935,9 @@ def build_dataset(
             _build_signals(dataset, config, table, force=force)
         )
     if text:
-        if dataset == "pallier2025":
-            raise ValueError("Pallier2025 阶段 2A 尚未冻结 text 数值合同。")
-        result["text_manifest"] = str(_build_text(dataset, config, table))
+        result["text_manifest"] = str(
+            _build_text(dataset, config, table, force=force)
+        )
     component_paths = _component_manifest_paths(dataset, config)
     if all(path.exists() for path in component_paths.values()):
         if table is None:

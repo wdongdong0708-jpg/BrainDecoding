@@ -27,7 +27,10 @@ def _vocabularies(dataset):
 
 def test_all_machine_manifests_have_stable_self_hashes():
     paths = sorted(MANIFEST_ROOT.rglob("*.json"))
-    assert len(paths) == 19
+    assert len(paths) == 27
+    assert (
+        MANIFEST_ROOT / "pallier2025/implementation_diagnostics.json"
+    ) in paths
     for path in paths:
         payload = json.loads(path.read_text(encoding="utf-8"))
         if "manifest_sha256" not in payload:
@@ -167,6 +170,7 @@ def test_story_references_and_provenance_match():
     expected = {
         "chineseeeg2": (28123, 2640, 54),
         "smn4lang": (43327, 9122, 60),
+        "pallier2025": (15256, 2426, 9),
     }
     for dataset, (token_count, type_count, unit_count) in expected.items():
         reference_path = MANIFEST_ROOT / dataset / "story_reference.json"
@@ -174,7 +178,8 @@ def test_story_references_and_provenance_match():
         provenance = _load(f"{dataset}/story_reference.provenance.json")
         assert sum(reference.values()) == provenance["token_count"] == token_count
         assert len(reference) == provenance["type_count"] == type_count
-        assert len(provenance["source_units"]) == unit_count
+        source_units = provenance.get("source_units", provenance.get("source_materials"))
+        assert len(source_units) == unit_count
         assert provenance["subject_repetitions_counted"] is False
         assert provenance["domain_reference"]["status"] == "not_frozen"
         assert provenance["reference_sha256"] == hashlib.sha256(
@@ -183,7 +188,7 @@ def test_story_references_and_provenance_match():
 
 
 def test_candidate_vocabulary_and_story_reference_are_independent_assets():
-    for dataset in ("chineseeeg2", "smn4lang"):
+    for dataset in ("chineseeeg2", "smn4lang", "pallier2025"):
         vocabulary = _load(f"{dataset}/vocabulary_N20.json")
         reference = _load(f"{dataset}/story_reference.json")
         provenance = _load(f"{dataset}/story_reference.provenance.json")

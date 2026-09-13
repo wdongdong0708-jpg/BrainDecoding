@@ -1,0 +1,141 @@
+{
+  "asset_type": "ovmi_evaluation_support",
+  "dataset": "SMN4Lang",
+  "full_ovmi_rule": {
+    "missing_true_sample_action": "unavailable",
+    "remove_missing_words": false,
+    "report_coverage_and_retrieval": true,
+    "silent_metric_substitution": false,
+    "smooth_zero_rows": false
+  },
+  "generator": "experiments/generate_manifests.py",
+  "generator_sha256": "18e934562f834128f5d281c2d3dba2bbe18778f277ca690c4f66a36d79ea6acc",
+  "manifest_sha256": "38c22332b00de2049e90ac99b82870b3d82b66316af0a8d9e16864050754c939",
+  "status": "development_sub01_support_audit",
+  "support_audit_used_for_vocabulary_selection": false,
+  "test_status": "raw_neural_data_preprocessed_no_model_evaluation_labels_inspected",
+  "vocabularies": {
+    "N100": {
+      "candidate_manifest_sha256": "c1c8222548a4bf9fddb5a015f6025b7b582d8ae2459d41c15a5db8ee6ea70390",
+      "splits": {
+        "test": {
+          "full_ovmi_status": "unavailable_missing_true_samples",
+          "missing_word_count": 5,
+          "missing_words": [
+            "直播",
+            "次",
+            "劳动",
+            "文学",
+            "松茸"
+          ],
+          "supported_word_count": 95
+        },
+        "val": {
+          "full_ovmi_status": "unavailable_missing_true_samples",
+          "missing_word_count": 6,
+          "missing_words": [
+            "直播",
+            "教育",
+            "传统",
+            "文学",
+            "又",
+            "松茸"
+          ],
+          "supported_word_count": 94
+        }
+      }
+    },
+    "N150": {
+      "candidate_manifest_sha256": "5356cb719fa1e7fd2f946ae536c74452b1698280caafbd929985e5dab9cdfa6c",
+      "splits": {
+        "test": {
+          "full_ovmi_status": "unavailable_missing_true_samples",
+          "missing_word_count": 17,
+          "missing_words": [
+            "直播",
+            "次",
+            "劳动",
+            "文学",
+            "松茸",
+            "科幻",
+            "消费",
+            "科学",
+            "观众",
+            "明星",
+            "行业",
+            "消费者",
+            "研究生",
+            "年会",
+            "用户",
+            "自然",
+            "意义"
+          ],
+          "supported_word_count": 133
+        },
+        "val": {
+          "full_ovmi_status": "unavailable_missing_true_samples",
+          "missing_word_count": 17,
+          "missing_words": [
+            "直播",
+            "教育",
+            "传统",
+            "文学",
+            "又",
+            "松茸",
+            "科幻",
+            "观众",
+            "明星",
+            "消费者",
+            "孩子",
+            "研究生",
+            "场",
+            "年会",
+            "两",
+            "你",
+            "企业"
+          ],
+          "supported_word_count": 133
+        }
+      }
+    },
+    "N20": {
+      "candidate_manifest_sha256": "b729e5f1c9b1e6cd6cdca988d90c05fdc28414f6ee8fe7a4306315cfefb62010",
+      "splits": {
+        "test": {
+          "full_ovmi_status": "available",
+          "missing_word_count": 0,
+          "missing_words": [],
+          "supported_word_count": 20
+        },
+        "val": {
+          "full_ovmi_status": "available",
+          "missing_word_count": 0,
+          "missing_words": [],
+          "supported_word_count": 20
+        }
+      }
+    },
+    "N50": {
+      "candidate_manifest_sha256": "10cfa954c2e789c3c9bba806403ad5c8fa3a725ecca290967682f20c20f4359b",
+      "splits": {
+        "test": {
+          "full_ovmi_status": "unavailable_missing_true_samples",
+          "missing_word_count": 1,
+          "missing_words": [
+            "直播"
+          ],
+          "supported_word_count": 49
+        },
+        "val": {
+          "full_ovmi_status": "unavailable_missing_true_samples",
+          "missing_word_count": 2,
+          "missing_words": [
+            "直播",
+            "教育"
+          ],
+          "supported_word_count": 48
+        }
+      }
+    }
+  }
+}

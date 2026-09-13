@@ -1,0 +1,200 @@
+{
+  "asset_type": "ovmi_evaluation_support",
+  "dataset": "ChineseEEG2",
+  "full_ovmi_rule": {
+    "missing_true_sample_action": "unavailable",
+    "remove_missing_words": false,
+    "report_coverage_and_retrieval": true,
+    "silent_metric_substitution": false,
+    "smooth_zero_rows": false
+  },
+  "generator": "experiments/generate_manifests.py",
+  "generator_sha256": "18e934562f834128f5d281c2d3dba2bbe18778f277ca690c4f66a36d79ea6acc",
+  "manifest_sha256": "6566393feee484ae2f767cd8ed019d14cb6768da1141a1255073e029f658ef23",
+  "status": "frozen_support_audit",
+  "support_audit_used_for_vocabulary_selection": false,
+  "test_status": "previously_used_for_exploratory_analysis",
+  "vocabularies": {
+    "N100": {
+      "candidate_manifest_sha256": "f306f3de959ff1be387354b44400f03d7429c1640726e5a82cc52f5f16f36421",
+      "splits": {
+        "test": {
+          "full_ovmi_status": "unavailable_missing_true_samples",
+          "missing_word_count": 18,
+          "missing_words": [
+            "他们",
+            "星星",
+            "国王",
+            "狐狸",
+            "知道",
+            "地理学家",
+            "做",
+            "到",
+            "呀",
+            "要是",
+            "命令",
+            "来说",
+            "用",
+            "啊",
+            "您",
+            "这么",
+            "只有",
+            "下"
+          ],
+          "supported_word_count": 82
+        },
+        "val": {
+          "full_ovmi_status": "unavailable_missing_true_samples",
+          "missing_word_count": 12,
+          "missing_words": [
+            "她",
+            "星星",
+            "国王",
+            "地理学家",
+            "大人",
+            "一朵",
+            "看见",
+            "命令",
+            "还是",
+            "您",
+            "只有",
+            "走"
+          ],
+          "supported_word_count": 88
+        }
+      }
+    },
+    "N150": {
+      "candidate_manifest_sha256": "121ee4db66a803e2b6a1e86f27125c70087d578c4a30e0186d4e27676f679e04",
+      "splits": {
+        "test": {
+          "full_ovmi_status": "unavailable_missing_true_samples",
+          "missing_word_count": 42,
+          "missing_words": [
+            "他们",
+            "星星",
+            "国王",
+            "狐狸",
+            "知道",
+            "地理学家",
+            "做",
+            "到",
+            "呀",
+            "要是",
+            "命令",
+            "来说",
+            "用",
+            "啊",
+            "您",
+            "这么",
+            "只有",
+            "下",
+            "驯养",
+            "蛇",
+            "一颗",
+            "爱",
+            "行星",
+            "些",
+            "哪儿",
+            "探险家",
+            "明白",
+            "正事",
+            "真",
+            "那个",
+            "重要",
+            "望",
+            "使",
+            "商人",
+            "看到",
+            "颗",
+            "如果",
+            "朵",
+            "玫瑰",
+            "意思",
+            "找",
+            "时间"
+          ],
+          "supported_word_count": 108
+        },
+        "val": {
+          "full_ovmi_status": "unavailable_missing_true_samples",
+          "missing_word_count": 28,
+          "missing_words": [
+            "她",
+            "星星",
+            "国王",
+            "地理学家",
+            "大人",
+            "一朵",
+            "看见",
+            "命令",
+            "还是",
+            "您",
+            "只有",
+            "走",
+            "蛇",
+            "谁",
+            "行星",
+            "些",
+            "探险家",
+            "正事",
+            "望",
+            "刺",
+            "商人",
+            "有点",
+            "看到",
+            "如果",
+            "朵",
+            "意思",
+            "所有",
+            "时间"
+          ],
+          "supported_word_count": 122
+        }
+      }
+    },
+    "N20": {
+      "candidate_manifest_sha256": "d3970053486862e22ef8202939caed7a5a7a1269c02ceda24d4517c5f1235d4d",
+      "splits": {
+        "test": {
+          "full_ovmi_status": "available",
+          "missing_word_count": 0,
+          "missing_words": [],
+          "supported_word_count": 20
+        },
+        "val": {
+          "full_ovmi_status": "available",
+          "missing_word_count": 0,
+          "missing_words": [],
+          "supported_word_count": 20
+        }
+      }
+    },
+    "N50": {
+      "candidate_manifest_sha256": "3f83eff279d58a3d1bf43265fcfc63e8c953beb5dc6b5cc462aee03c0f5e88ae",
+      "splits": {
+        "test": {
+          "full_ovmi_status": "unavailable_missing_true_samples",
+          "missing_word_count": 4,
+          "missing_words": [
+            "他们",
+            "星星",
+            "国王",
+            "狐狸"
+          ],
+          "supported_word_count": 46
+        },
+        "val": {
+          "full_ovmi_status": "unavailable_missing_true_samples",
+          "missing_word_count": 3,
+          "missing_words": [
+            "她",
+            "星星",
+            "国王"
+          ],
+          "supported_word_count": 47
+        }
+      }
+    }
+  }
+}
