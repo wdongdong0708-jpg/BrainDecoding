@@ -376,12 +376,6 @@ def test_canonical_base_files_are_explicitly_non_runnable():
             "run_training",
             "print_training_summary",
         ),
-        (
-            "braindecoding.tasks.sequence_decoding.chineseeeg_sr.train",
-            "load_config",
-            "run_training",
-            "print_training_summary",
-        ),
     ),
 )
 def test_canonical_cli_records_running_then_completed_without_real_training(
@@ -394,9 +388,6 @@ def test_canonical_cli_records_running_then_completed_without_real_training(
 ):
     module = importlib.import_module(module_name)
     config = _minimal_config()
-    if "sequence_decoding" in module_name:
-        config["run_section"] = "training"
-        config["training"]["top_ks"] = [1, 10]
     statuses = []
 
     monkeypatch.setattr(module, loader_name, lambda path: copy.deepcopy(config))

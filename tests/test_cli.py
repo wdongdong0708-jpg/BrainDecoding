@@ -182,6 +182,40 @@ def test_cli_has_no_test_evaluation_option():
             ]
         )
 
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                "audit",
+                "pallier2025/sub01-10/main_word",
+                "--split",
+                "test",
+            ]
+        )
+
+
+def test_audit_forwards_the_exact_selector(monkeypatch, capsys):
+    from braindecoding.audit import runner
+
+    observed = {}
+
+    def fake_run(selector, *, device_name, mapping_only):
+        observed.update(
+            selector=selector,
+            device_name=device_name,
+            mapping_only=mapping_only,
+        )
+        return {"status": "mapping_only", "selector": selector}
+
+    monkeypatch.setattr(runner, "run_experiment", fake_run)
+    selector = "pallier2025/sub01-10/main_context_warmstart"
+    assert cli.main(["audit", selector, "--mapping-only", "--device", "cuda"]) == 0
+    assert observed == {
+        "selector": selector,
+        "device_name": "cuda",
+        "mapping_only": True,
+    }
+    assert selector in capsys.readouterr().out
+
 
 def test_data_check_reuses_package_builder(monkeypatch, capsys):
     import braindecoding.data.build as build

@@ -17,10 +17,10 @@ from braindecoding.tasks.word_decoding.smn4lang.train import load_config as load
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 TRAIN_ENTRY_PATHS = (
-    PROJECT_ROOT / "braindecoding/tasks/sequence_decoding/chineseeeg_sr/train.py",
     PROJECT_ROOT / "braindecoding/tasks/word_decoding/libribrain100/train.py",
     PROJECT_ROOT / "braindecoding/tasks/word_decoding/smn4lang/train.py",
     PROJECT_ROOT / "braindecoding/tasks/word_decoding/chineseeeg2_littleprince/train.py",
+    PROJECT_ROOT / "braindecoding/tasks/word_decoding/pallier2025/train.py",
 )
 DATASET_ROOT_CONFIGS = (
     (

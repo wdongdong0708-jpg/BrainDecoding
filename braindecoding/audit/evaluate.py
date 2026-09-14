@@ -1,4 +1,4 @@
-"""从统一 brain feature 缓存评价 clean、temporal shift 与 donor swap。"""
+"""从统一 brain feature 缓存评价 validation neural controls。"""
 
 from __future__ import annotations
 
@@ -25,8 +25,16 @@ from braindecoding.evaluation.retrieval import (
 
 
 @torch.inference_mode()
-def collect_brain_features(model, loader, device, *, signal_key: str, amp=True) -> dict:
-    """只运行一次 brain encoder，并保留原目标、批次与上下文位置。"""
+def collect_brain_features(
+    model,
+    loader,
+    device,
+    *,
+    signal_key: str,
+    amp=True,
+    collect_direct_predictions=False,
+) -> dict:
+    """缓存 brain feature，并可在同一次 encoder forward 中保留直接预测。"""
     model.eval()
     features = []
     targets = []
@@ -35,6 +43,7 @@ def collect_brain_features(model, loader, device, *, signal_key: str, amp=True) 
     words = []
     event_ids = []
     recording_ids = []
+    direct_predictions = []
     batch_slices = []
     use_amp = bool(amp) and device.type == "cuda"
     start = 0
@@ -46,7 +55,16 @@ def collect_brain_features(model, loader, device, *, signal_key: str, amp=True) 
             dtype=torch.float16,
             enabled=use_amp,
         ):
-            feature = F.normalize(model.brain_encoder(signals, subjects), dim=-1)
+            if collect_direct_predictions:
+                direct, feature = model(
+                    signals,
+                    subjects,
+                    batch["sentence_index"].to(device, non_blocking=True),
+                    return_brain_embedding=True,
+                )
+                direct_predictions.append(direct.float().cpu())
+            else:
+                feature = F.normalize(model.brain_encoder(signals, subjects), dim=-1)
         features.append(feature.cpu())
         targets.append(batch["text_embedding"].float().cpu())
         subject_indices.append(batch["subject_index"].long().cpu())
@@ -61,7 +79,7 @@ def collect_brain_features(model, loader, device, *, signal_key: str, amp=True) 
         raise ValueError("validation loader 为空。")
     if len(event_ids) != len(set(event_ids)):
         raise ValueError("feature cache 中出现重复事件编号。")
-    return {
+    result = {
         "batch_slices": batch_slices,
         "brain_features": torch.cat(features),
         "event_ids": event_ids,
@@ -71,6 +89,9 @@ def collect_brain_features(model, loader, device, *, signal_key: str, amp=True) 
         "target_embeddings": torch.cat(targets),
         "words": words,
     }
+    if collect_direct_predictions:
+        result["direct_predictions"] = torch.cat(direct_predictions)
+    return result
 
 
 def _source_by_target(mapping: dict) -> dict[str, str]:
@@ -166,6 +187,98 @@ def predict_from_cached_features(
     return torch.cat(predictions), mapping_audit
 
 
+@torch.inference_mode()
+def predict_structure_only_from_cached_features(
+    model,
+    encoded: dict,
+    *,
+    model_condition: str,
+    device,
+    amp=True,
+) -> tuple[torch.Tensor | None, dict]:
+    """把整个 batch 的神经 feature 清零，仅保留冻结结构与位置计算。"""
+    if model_condition == "word":
+        return None, {
+            "status": "not_applicable",
+            "reason": "no_context_transformer",
+        }
+    if model_condition != "neural_context":
+        raise ValueError(f"未知模型条件：{model_condition}")
+    if model.context_transformer is None or model.context_mode != "grouped":
+        raise ValueError("structure_only 只支持 grouped context transformer。")
+
+    model.eval()
+    zero_features = torch.zeros_like(encoded["brain_features"])
+    predictions = []
+    use_amp = bool(amp) and device.type == "cuda"
+    for start, stop in encoded["batch_slices"]:
+        batch_features = zero_features[start:stop].to(device, non_blocking=True)
+        group_indices = encoded["sentence_indices"][start:stop].to(
+            device, non_blocking=True
+        )
+        with torch.autocast(
+            device_type=device.type,
+            dtype=torch.float16,
+            enabled=use_amp,
+        ):
+            output = model.context_transformer(batch_features, group_indices)
+            output = F.normalize(output, dim=-1)
+        predictions.append(output.float().cpu())
+    return torch.cat(predictions), {
+        "status": "completed",
+        "definition": "no_neural_feature_structural_inference_control",
+        "all_context_brain_features_zero": bool(
+            torch.count_nonzero(zero_features).item() == 0
+        ),
+        "batch_slices_unchanged": True,
+        "context_group_indices_unchanged": True,
+        "group_length_and_order_unchanged": True,
+    }
+
+
+def verify_cached_clean_predictions(
+    model,
+    encoded: dict,
+    clean_mapping: dict,
+    query_event_ids,
+    *,
+    model_condition: str,
+    device,
+    amp=True,
+    atol=2e-5,
+    rtol=2e-4,
+) -> dict:
+    """验证 cached-feature clean 与同批次 canonical direct forward 等价。"""
+    if "direct_predictions" not in encoded:
+        raise ValueError("feature cache 未保留 canonical direct predictions。")
+    cached, _ = predict_from_cached_features(
+        model,
+        encoded,
+        clean_mapping,
+        query_event_ids,
+        model_condition=model_condition,
+        device=device,
+        amp=amp,
+    )
+    direct = encoded["direct_predictions"].float()
+    differences = (cached.float() - direct).abs()
+    equivalent = torch.allclose(cached.float(), direct, atol=atol, rtol=rtol)
+    if not equivalent:
+        raise AssertionError(
+            "cached-feature clean 与 canonical direct forward 不等价："
+            f"max_abs={float(differences.max())}"
+        )
+    return {
+        "allclose": True,
+        "atol": float(atol),
+        "event_ids_equal": True,
+        "maximum_absolute_difference": float(differences.max().cpu()),
+        "mean_absolute_difference": float(differences.mean().cpu()),
+        "rtol": float(rtol),
+        "shape": list(cached.shape),
+    }
+
+
 def fixed_vocabulary_metrics_for_queries(
     predictions,
     encoded: dict,
@@ -240,12 +353,14 @@ def evaluate_control(
     encoded: dict,
     query_event_ids,
     vocabulary_manifests: dict[int, dict],
-    ovmi_support_manifest: dict,
-    story_reference: dict,
+    ovmi_support_manifest: dict | None,
+    story_reference: dict | None,
     *,
     dataset_name: str,
+    language: str,
+    vocabulary_statuses: dict[int, dict] | None = None,
 ) -> dict:
-    """按四个冻结 N 汇总 retrieval，并严格执行 full OVMI 支持规则。"""
+    """按实际冻结词表汇总 retrieval；缺失资产保持显式 not_run。"""
     results = {}
     for size, vocabulary_manifest in sorted(vocabulary_manifests.items()):
         vocabulary = vocabulary_manifest["vocabulary"]
@@ -256,11 +371,22 @@ def evaluate_control(
             vocabulary,
             vocabulary_name=f"{dataset_name.lower()}_N{size}",
         )
-        frozen_support = ovmi_support_manifest["vocabularies"][f"N{size}"]["splits"][
-            "val"
-        ]
+        frozen_support = None
+        if ovmi_support_manifest is not None:
+            frozen_support = (
+                ovmi_support_manifest.get("vocabularies", {})
+                .get(f"N{size}", {})
+                .get("splits", {})
+                .get("val")
+            )
         missing_words = list(metrics["missing_vocabulary_words"])
-        if not missing_words:
+        if story_reference is None:
+            metrics["ovmi_story"] = {
+                "available": False,
+                "reason": "story_reference_not_frozen",
+                "status": "not_run",
+            }
+        elif not missing_words:
             metrics["ovmi_story"] = full_ovmi_metrics(
                 details["true_words"],
                 details["predicted_words"],
@@ -269,18 +395,20 @@ def evaluate_control(
                     "enabled": True,
                     "method": "full",
                     "reference": story_reference,
-                    "language": "zh",
+                    "language": str(language),
                 },
             )
         else:
             metrics["ovmi_story"] = {
                 "available": False,
-                "frozen_validation_support_status": frozen_support[
-                    "full_ovmi_status"
-                ],
+                "frozen_validation_support_status": (
+                    frozen_support.get("full_ovmi_status")
+                    if frozen_support is not None
+                    else None
+                ),
                 "missing_word_count": len(missing_words),
                 "missing_words": missing_words,
-                "reason": "missing_true_samples_in_frozen_vocabulary",
+                "reason": "missing_true_class_support",
                 "supported_word_count": len(vocabulary) - len(missing_words),
             }
         metrics["ovmi_domain"] = {
@@ -288,7 +416,78 @@ def evaluate_control(
             "reason": "domain_reference_not_frozen",
         }
         results[f"N{size}"] = metrics
+    for size, status in sorted((vocabulary_statuses or {}).items()):
+        results.setdefault(f"N{int(size)}", dict(status))
     return results
+
+
+_AGGREGATE_RETRIEVAL_FIELDS = {
+    "top1": "micro_recall_at_1",
+    "top10": "micro_recall_at_10",
+    "macro_top1": "macro_recall_at_1",
+    "macro_top10": "macro_recall_at_10",
+    "median_rank": "median_rank",
+    "mrr": "mean_reciprocal_rank",
+}
+
+
+def _summary_statistics(values) -> dict:
+    values = np.asarray(values, dtype=np.float64)
+    mean = float(values.mean())
+    std = float(values.std(ddof=1)) if len(values) > 1 else 0.0
+    half_width = 1.96 * std / np.sqrt(len(values))
+    return {
+        "count": int(len(values)),
+        "mean": mean,
+        "std": std,
+        "ci95_low": float(mean - half_width),
+        "ci95_high": float(mean + half_width),
+    }
+
+
+def aggregate_donor_results(per_seed_results: dict[str, dict]) -> dict:
+    """按固定 20 seeds 汇总 donor retrieval 与可用 story OVMI。"""
+    if len(per_seed_results) != 20:
+        raise ValueError("donor aggregate 必须包含固定的 20 个 seed。")
+    sizes = sorted(
+        set.intersection(
+            *(set(result) for result in per_seed_results.values())
+        )
+    )
+    aggregate = {}
+    for size in sizes:
+        blocks = [result[size] for result in per_seed_results.values()]
+        if any(block.get("status") == "not_run" for block in blocks):
+            aggregate[size] = {
+                "status": "not_run",
+                "reason": blocks[0].get(
+                    "reason", "vocabulary_manifest_not_frozen"
+                ),
+            }
+            continue
+        retrieval = {
+            name: _summary_statistics([block[field] for block in blocks])
+            for name, field in _AGGREGATE_RETRIEVAL_FIELDS.items()
+        }
+        ovmi = [block.get("ovmi_story", {}) for block in blocks]
+        if all(item.get("available") and item.get("score_bits") is not None for item in ovmi):
+            ovmi_story = {
+                "status": "completed",
+                "score_bits": _summary_statistics(
+                    [item["score_bits"] for item in ovmi]
+                ),
+            }
+        else:
+            ovmi_story = {
+                "status": "unavailable",
+                "reason": "not_available_for_all_donor_seeds",
+            }
+        aggregate[size] = {
+            "status": "completed",
+            "retrieval": retrieval,
+            "ovmi_story": ovmi_story,
+        }
+    return aggregate
 
 
 def save_feature_cache(output_dir, encoded: dict, provenance: dict) -> dict:

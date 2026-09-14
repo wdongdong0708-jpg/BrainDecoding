@@ -1120,6 +1120,8 @@ def add_runtime_context_uid(table, max_context_words=128):
         raise ValueError("Pallier2025 运行时上下文跨受试者。")
     if grouped["记录编号"].nunique().gt(1).any():
         raise ValueError("Pallier2025 运行时上下文跨 recording。")
+    if grouped["上下文编号"].nunique().gt(1).any():
+        raise ValueError("Pallier2025 运行时上下文混合多个 canonical context。")
     sizes = grouped.size()
     oversized = sizes[sizes.gt(maximum)]
     if not oversized.empty:
@@ -1149,6 +1151,9 @@ def runtime_context_statistics(table, max_context_words=128) -> dict:
         "cross_subject_groups": int(grouped["受试者"].nunique().gt(1).sum()),
         "cross_recording_groups": int(
             grouped["记录编号"].nunique().gt(1).sum()
+        ),
+        "cross_canonical_context_groups": int(
+            grouped["上下文编号"].nunique().gt(1).sum()
         ),
         "groups_over_maximum": int(sizes.gt(int(max_context_words)).sum()),
     }

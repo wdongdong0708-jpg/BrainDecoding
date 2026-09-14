@@ -101,6 +101,24 @@ def test_temporal_mapping_hash_and_serialization_are_stable():
     controls.validate_payload_sha256(first, "mapping_sha256")
 
 
+def test_existing_control_algorithm_fixture_hashes_do_not_drift():
+    assets = _assets()
+    expected = {
+        "clean_identity_mapping.json": "b66a7225480995c2ccffb20f85f8db62cc31256c9856fcec73a3b090cb2ccd8a",
+        "temporal_shift_mapping.json": "2f3dbe5b65c2358c18896cb968e1b1be215ca96c67fbfecb6b5a9a26455b2a2b",
+        "donor_swap_seed00.json": "912e0e9c8331abeaf9a6238aee0ef45944160ede449d1cc5cbbc9c1c8d1be9ff",
+        "donor_swap_seed19.json": "f7466114012968796e7add0c2755169165566bc7f429bd38dc730f4fd3cf88e3",
+        "core_audit_queries.json": "937255ddeb055069c61ea456332727fba12d4dbf9b3958978ddb36000c871077",
+    }
+    for name, digest in expected.items():
+        field = (
+            "query_manifest_sha256"
+            if name == "core_audit_queries.json"
+            else "mapping_sha256"
+        )
+        assert assets[name][field] == digest
+
+
 def test_donor_mapping_obeys_subject_recording_word_and_window_contract():
     mapping = _assets()["donor_swap_seed00.json"]
     for row in mapping["mappings"]:
@@ -182,6 +200,55 @@ class _FakeWordModel(nn.Module):
         self.brain_encoder = _FakeBrainEncoder()
         self.context_transformer = None
         self.context_mode = "grouped"
+
+    def forward(
+        self,
+        signals,
+        subject_indices=None,
+        group_indices=None,
+        return_brain_embedding=False,
+    ):
+        del group_indices
+        feature = torch.nn.functional.normalize(
+            self.brain_encoder(signals, subject_indices), dim=-1
+        )
+        if return_brain_embedding:
+            return feature, feature
+        return feature
+
+
+class _RecordingContextTransformer(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.inputs = []
+        self.groups = []
+
+    def forward(self, features, group_indices):
+        self.inputs.append(features.detach().cpu().clone())
+        self.groups.append(group_indices.detach().cpu().clone())
+        return features + 1.0
+
+
+class _FakeContextModel(_FakeWordModel):
+    def __init__(self):
+        super().__init__()
+        self.context_transformer = _RecordingContextTransformer()
+
+    def forward(
+        self,
+        signals,
+        subject_indices=None,
+        group_indices=None,
+        return_brain_embedding=False,
+    ):
+        feature = torch.nn.functional.normalize(
+            self.brain_encoder(signals, subject_indices), dim=-1
+        )
+        output = self.context_transformer(feature, group_indices)
+        output = torch.nn.functional.normalize(output, dim=-1)
+        if return_brain_embedding:
+            return output, feature
+        return output
 
 
 class _FakeDataset:
@@ -284,6 +351,122 @@ def test_clean_cached_runner_matches_existing_retrieval_exactly():
         vocabulary_name="fixture",
     )
     assert actual == expected
+
+
+def test_cached_clean_prediction_matches_direct_forward():
+    dataset = _FakeDataset()
+    model = _FakeContextModel().eval()
+    encoded = evaluate.collect_brain_features(
+        model,
+        _fake_loader(dataset),
+        torch.device("cpu"),
+        signal_key="eeg",
+        amp=False,
+        collect_direct_predictions=True,
+    )
+    events = controls.prepare_validation_events(dataset.table)
+    clean = controls.build_identity_mapping(
+        events, dataset="fixture", event_table_sha256="event-table"
+    )
+    result = evaluate.verify_cached_clean_predictions(
+        model,
+        encoded,
+        clean,
+        events["event_id"],
+        model_condition="neural_context",
+        device=torch.device("cpu"),
+        amp=False,
+    )
+    assert result["allclose"] is True
+    assert result["maximum_absolute_difference"] == 0.0
+
+
+def test_structure_only_zeros_all_context_features_and_preserves_groups():
+    model = _FakeContextModel().eval()
+    encoded = {
+        "brain_features": torch.arange(24, dtype=torch.float32).reshape(6, 4),
+        "batch_slices": [(0, 3), (3, 6)],
+        "sentence_indices": torch.tensor([0, 0, 1, 2, 2, 2]),
+    }
+    original_groups = encoded["sentence_indices"].clone()
+    prediction, audit = evaluate.predict_structure_only_from_cached_features(
+        model,
+        encoded,
+        model_condition="neural_context",
+        device=torch.device("cpu"),
+        amp=False,
+    )
+    assert prediction.shape == (6, 4)
+    assert all(torch.count_nonzero(value).item() == 0 for value in model.context_transformer.inputs)
+    torch.testing.assert_close(
+        torch.cat(model.context_transformer.groups), original_groups
+    )
+    assert audit["all_context_brain_features_zero"] is True
+    assert audit["group_length_and_order_unchanged"] is True
+
+
+def test_word_structure_only_is_explicitly_not_applicable():
+    prediction, audit = evaluate.predict_structure_only_from_cached_features(
+        _FakeWordModel(),
+        {"brain_features": torch.ones(2, 3)},
+        model_condition="word",
+        device=torch.device("cpu"),
+        amp=False,
+    )
+    assert prediction is None
+    assert audit == {
+        "status": "not_applicable",
+        "reason": "no_context_transformer",
+    }
+
+
+def test_donor_aggregate_uses_all_twenty_seeds():
+    per_seed = {}
+    for seed in range(20):
+        value = seed / 100.0
+        per_seed[f"seed-{seed:02d}"] = {
+            "N50": {
+                "micro_recall_at_1": value,
+                "micro_recall_at_10": value + 0.1,
+                "macro_recall_at_1": value + 0.2,
+                "macro_recall_at_10": value + 0.3,
+                "median_rank": 10.0 + seed,
+                "mean_reciprocal_rank": value + 0.4,
+                "ovmi_story": {"available": True, "score_bits": value + 0.5},
+            }
+        }
+    aggregate = evaluate.aggregate_donor_results(per_seed)
+    assert aggregate["N50"]["retrieval"]["top1"]["count"] == 20
+    assert aggregate["N50"]["retrieval"]["top1"]["mean"] == pytest.approx(0.095)
+    assert aggregate["N50"]["ovmi_story"]["score_bits"]["count"] == 20
+
+
+def test_ovmi_language_is_supplied_by_dataset_adapter(monkeypatch):
+    observed = {}
+
+    def fake_ovmi(true_words, predicted_words, vocabulary, config):
+        del true_words, predicted_words, vocabulary
+        observed["language"] = config["language"]
+        return {"available": True, "score_bits": 0.0}
+
+    monkeypatch.setattr(evaluate, "full_ovmi_metrics", fake_ovmi)
+    encoded = {
+        "event_ids": ["a", "b"],
+        "target_embeddings": torch.eye(2),
+        "words": ["a", "b"],
+    }
+    result = evaluate.evaluate_control(
+        torch.eye(2),
+        encoded,
+        ["a", "b"],
+        {2: {"vocabulary": ["a", "b"], "manifest_sha256": "sha"}},
+        None,
+        {"a": 1, "b": 1},
+        dataset_name="pallier2025",
+        language="fr",
+    )
+    assert observed["language"] == "fr"
+    assert result["N2"]["ovmi_story"]["available"] is True
 
 
 def test_runner_rejects_test_before_any_neural_access():

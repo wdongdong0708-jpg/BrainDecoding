@@ -281,23 +281,10 @@ def _data_build(args) -> int:
 
 
 def _audit(selector: str, mapping_only: bool, device: str) -> int:
-    record = resolve_selector(selector)
-    dataset = record["identity"]["dataset"]
-    names = {
-        "chineseeeg2_littleprince": "ChineseEEG2",
-        "smn4lang": "SMN4Lang",
-    }
-    if dataset not in names:
-        print(f"audit unavailable for {dataset}", file=sys.stderr)
-        return 2
-    model_condition = (
-        "word" if record["identity"]["experiment_id"] == "main_word" else "neural_context"
-    )
-    from braindecoding.audit.runner import run_dataset
+    from braindecoding.audit.runner import run_experiment
 
-    result = run_dataset(
-        names[dataset],
-        model_conditions=(model_condition,),
+    result = run_experiment(
+        selector,
         device_name=device,
         mapping_only=mapping_only,
     )
