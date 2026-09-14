@@ -23,11 +23,11 @@ from braindecoding.models import build_brain_embedding_model
 CHINESEEEG2_AUDIT_CONFIGS = {
     "ChineseEEG2": (
         "configs/word_decoding/chineseeeg2_littleprince/"
-        "sub01-08/main_context.yaml"
+        "sub01-08/main_context_warmstart.yaml"
     ),
     "ChineseEEG2ActualReadingEightSubjectsSemantic": (
         "configs/word_decoding/chineseeeg2_littleprince/"
-        "sub01-08/main_context.yaml"
+        "sub01-08/main_context_warmstart.yaml"
     ),
 }
 

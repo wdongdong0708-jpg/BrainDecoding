@@ -205,7 +205,12 @@ def _pallier_contract_status(config: dict, event_manifest: dict) -> dict:
 
     dataset = config["dataset"]
     experiment_id = config.get("experiment", {}).get("id")
-    expected_transformer = experiment_id == "main_context"
+    expected_transformer = experiment_id in {
+        "main_context",
+        "main_context_warmstart",
+    }
+    warm_start_expected = experiment_id == "main_context_warmstart"
+    training = config.get("training", {})
     canonical_cache = config.get("cache", {})
     checks = {
         "event_table_sha256": event_manifest.get("event_table_sha256")
@@ -270,12 +275,18 @@ def _pallier_contract_status(config: dict, event_manifest: dict) -> dict:
         .get("heads")
         == 16
         and config.get("model", {}).get("transformer", {}).get("depth") == 16,
-        "no_warm_start_or_freeze": all(
-            config.get("training", {}).get(key) in (None, 0, "")
-            for key in (
-                "warm_start_from",
-                "pretrained_brain_encoder_checkpoint",
-                "freeze_brain_encoder_updates",
+        "initialization_contract": (
+            training.get("warm_start_from") == "main_word"
+            and bool(training.get("pretrained_brain_encoder_checkpoint"))
+            and training.get("freeze_brain_encoder_updates") in (None, 0, "")
+            if warm_start_expected
+            else all(
+                training.get(key) in (None, 0, "")
+                for key in (
+                    "warm_start_from",
+                    "pretrained_brain_encoder_checkpoint",
+                    "freeze_brain_encoder_updates",
+                )
             )
         ),
         "selection_metric": config.get("evaluation", {}).get("selection_metric")
@@ -392,7 +403,8 @@ def build_preflight_report(*, output_root=None) -> dict:
             reasons.append("pallier_contract_mismatch")
         if (
             dataset == "chineseeeg2_littleprince"
-            and identity["experiment_id"] == "main_context"
+            and identity["experiment_id"]
+            in {"main_context", "main_context_warmstart"}
             and config["dataset"].get("context_grouping") != "bounded_semantic_v1"
         ):
             reasons.append("main_context_is_not_semantic_v1")

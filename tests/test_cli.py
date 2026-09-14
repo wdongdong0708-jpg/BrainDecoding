@@ -18,13 +18,14 @@ from braindecoding.config import PROJECT_ROOT
 
 SELECTORS = {
     "chineseeeg2_littleprince/sub01-08/main_word",
-    "chineseeeg2_littleprince/sub01-08/main_context",
+    "chineseeeg2_littleprince/sub01-08/main_context_warmstart",
     "smn4lang/sub01-06/main_word",
     "smn4lang/sub01-06/main_context_warmstart",
     "libribrain100/sub0/main_word",
     "libribrain100/sub0/main_context",
     "pallier2025/sub01-10/main_word",
     "pallier2025/sub01-10/main_context",
+    "pallier2025/sub01-10/main_context_warmstart",
 }
 
 
@@ -143,7 +144,7 @@ def test_preflight_does_not_create_run_directory(tmp_path, monkeypatch):
 def test_run_missing_upstream_is_clear_and_has_no_side_effects(
     tmp_path, monkeypatch, capsys
 ):
-    selector = "chineseeeg2_littleprince/sub01-08/main_context"
+    selector = "chineseeeg2_littleprince/sub01-08/main_context_warmstart"
     record = resolve_selector(selector)
     output = tmp_path / "main_context" / "seed-000"
     upstream = tmp_path / "main_word" / "seed-000" / "best.pt"
@@ -159,7 +160,7 @@ def test_run_missing_upstream_is_clear_and_has_no_side_effects(
 def test_present_upstream_dependency_is_accepted_without_using_real_outputs(
     tmp_path, monkeypatch, capsys
 ):
-    selector = "chineseeeg2_littleprince/sub01-08/main_context"
+    selector = "chineseeeg2_littleprince/sub01-08/main_context_warmstart"
     record = resolve_selector(selector)
     upstream = tmp_path / "main_word" / "seed-000" / "best.pt"
     upstream.parent.mkdir(parents=True)

@@ -382,7 +382,7 @@ def test_actual_reading配置保持单一八人数据合同(monkeypatch):
     project_root = Path(__file__).resolve().parents[1]
     root = project_root / "configs/word_decoding/chineseeeg2_littleprince/sub01-08"
     word = 载入配置(root / "main_word.yaml")
-    context = 载入配置(root / "main_context.yaml")
+    context = 载入配置(root / "main_context_warmstart.yaml")
 
     expected_subjects = [f"sub-{index:02d}" for index in range(1, 9)]
     expected_counts = {"train": 81620, "val": 14132, "test": 8480}
@@ -408,6 +408,7 @@ def test_actual_reading配置保持单一八人数据合同(monkeypatch):
 
     assert word["model"]["use_transformer"] is False
     assert context["model"]["use_transformer"] is True
+    assert context["experiment"]["id"] == "main_context_warmstart"
     for config in (word, context):
         assert config["dataset"]["context_grouping"] == "bounded_semantic_v1"
         assert config["dataset"]["semantic_context"] == {

@@ -416,7 +416,7 @@ def test_local_pallier_text_product_is_reference_gated_and_reproducible():
     assert manifest["test_metrics_inspected"] is False
 
 
-def test_stage_2d_adds_only_two_active_experiments_and_no_checkpoint():
+def test_pallier_active_experiments_include_scratch_and_warmstart_context():
     root = Path(__file__).resolve().parents[1]
     assert not list((root / "derived/pallier2025").rglob("*.pt"))
     config_root = root / "configs/word_decoding/pallier2025"
@@ -427,3 +427,6 @@ def test_stage_2d_adds_only_two_active_experiments_and_no_checkpoint():
     assert [path.name for path in config_root.rglob("main_context.yaml")] == [
         "main_context.yaml"
     ]
+    assert [
+        path.name for path in config_root.rglob("main_context_warmstart.yaml")
+    ] == ["main_context_warmstart.yaml"]

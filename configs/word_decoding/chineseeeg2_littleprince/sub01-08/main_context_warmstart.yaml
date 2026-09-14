@@ -4,7 +4,7 @@ experiment:
   task: word_decoding
   dataset: chineseeeg2_littleprince
   subject_scope: sub01-08
-  id: main_context
+  id: main_context_warmstart
   category: main
 
 dataset:

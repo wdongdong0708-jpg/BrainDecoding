@@ -61,9 +61,9 @@ def test_preflight_covers_all_active_configs_without_side_effects(
 ):
     output_root = tmp_path / "outputs"
     report = _clean_report(monkeypatch, output_root)
-    assert len(report["experiments"]) == 8
+    assert len(report["experiments"]) == 9
     identities = [tuple(item["identity"].values()) for item in report["experiments"]]
-    assert len(identities) == len(set(identities)) == 8
+    assert len(identities) == len(set(identities)) == 9
     assert report["identity_unique"] is True
     assert report["production_legacy_references"] == []
     assert not output_root.exists()
@@ -87,8 +87,9 @@ def test_context_dependencies_wait_for_same_scope_main_word(tmp_path, monkeypatc
         for item in report["experiments"]
     }
     context_ids = {
-        "chineseeeg2_littleprince": "main_context",
+        "chineseeeg2_littleprince": "main_context_warmstart",
         "smn4lang": "main_context_warmstart",
+        "pallier2025": "main_context_warmstart",
     }
     for dataset, context_id in context_ids.items():
         context = by_key[(dataset, context_id)]
@@ -117,6 +118,7 @@ def test_existing_upstream_checkpoint_makes_context_dependency_ready(
         if config["experiment"]["dataset"] not in {
             "chineseeeg2_littleprince",
             "smn4lang",
+            "pallier2025",
         }:
             continue
         checkpoint = run_directory(config, output_root=output_root) / "best.pt"

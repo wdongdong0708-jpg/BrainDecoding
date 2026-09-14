@@ -53,7 +53,7 @@ CONFIGS = {
         "word": PROJECT_ROOT
         / "configs/word_decoding/chineseeeg2_littleprince/sub01-08/main_word.yaml",
         "neural_context": PROJECT_ROOT
-        / "configs/word_decoding/chineseeeg2_littleprince/sub01-08/main_context.yaml",
+        / "configs/word_decoding/chineseeeg2_littleprince/sub01-08/main_context_warmstart.yaml",
     },
     "SMN4Lang": {
         "word": PROJECT_ROOT

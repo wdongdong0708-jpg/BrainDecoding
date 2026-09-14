@@ -66,7 +66,7 @@ def test_all_configured_alignment_paths_use_artifacts_and_resolve():
     path = (
         PROJECT_ROOT
         / "configs/word_decoding/chineseeeg2_littleprince/"
-        "sub01-08/main_context.yaml"
+        "sub01-08/main_context_warmstart.yaml"
     )
     config = 载入配置(path)
     sources = config["dataset"]["actual_reading_sources"]
@@ -81,7 +81,7 @@ def test_alignment_move_does_not_change_canonical_warm_start_dependency():
     path = (
         PROJECT_ROOT
         / "configs/word_decoding/chineseeeg2_littleprince/"
-        "sub01-08/main_context.yaml"
+        "sub01-08/main_context_warmstart.yaml"
     )
     config = load_yaml_with_extends(path)
     assert config["training"]["warm_start_from"] == "main_word"

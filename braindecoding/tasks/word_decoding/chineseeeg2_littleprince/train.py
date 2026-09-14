@@ -23,7 +23,7 @@ DEFAULT_CONFIG = (
     / "word_decoding"
     / "chineseeeg2_littleprince"
     / "sub01-08"
-    / "main_context.yaml"
+    / "main_context_warmstart.yaml"
 )
 from braindecoding.experiment import (
     initialize_run_directory,

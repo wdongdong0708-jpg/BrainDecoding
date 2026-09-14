@@ -12,7 +12,7 @@ import torch
 from braindecoding.config import PROJECT_ROOT, load_yaml_with_extends, project_path
 from braindecoding.data import pallier2025 as dataset_module
 from braindecoding.evaluation.retrieval import fixed_vocabulary_retrieval_metrics
-from braindecoding.experiment import resolve_experiment_config
+from braindecoding.experiment import file_sha256, resolve_experiment_config
 from braindecoding.losses import build_siglip_loss
 from braindecoding.models import build_brain_embedding_model
 from braindecoding.optimizers import (
@@ -24,6 +24,7 @@ from braindecoding.training.runtime import (
     choose_device,
     cpu_state_dict,
     limit_rows,
+    load_checkpoint,
     parameter_count,
     save_checkpoint,
     save_json,
@@ -102,6 +103,114 @@ def loader_group_column(config) -> str:
 def frozen_vocabulary(size=SELECTION_VOCABULARY_SIZE):
     manifests, _ = load_vocabulary_assets(VOCABULARY_ASSET_DIRECTORY)
     return tuple(manifests[int(size)]["vocabulary"])
+
+
+def load_pretrained_brain_encoder(
+    model,
+    checkpoint_path,
+    config,
+    channel_names,
+    channel_positions,
+):
+    """只载入同一 Pallier 合同 main_word 检查点中的脑编码器。"""
+    checkpoint_path = Path(checkpoint_path).resolve()
+    checkpoint = load_checkpoint(checkpoint_path, map_location="cpu")
+    if checkpoint.get("task") != "word_decoding/Pallier2025":
+        raise ValueError(f"不是 Pallier2025 词解码检查点：{checkpoint_path}")
+    if checkpoint.get("dataset") != "pallier2025":
+        raise ValueError(f"Pallier2025 检查点数据集身份不一致：{checkpoint_path}")
+
+    source_model = checkpoint.get("model_config", {})
+    if bool(source_model.get("use_transformer", True)):
+        raise ValueError("Pallier2025 warm-start 必须来自 main_word CNN-only 检查点。")
+    if source_model.get("embedding_dimension") != config["model"].get(
+        "embedding_dimension"
+    ) or source_model.get("conv") != config["model"].get("conv"):
+        raise ValueError("Pallier2025 warm-start 的脑编码器结构合同不一致。")
+    if checkpoint.get("text_embedding_config") != config["text_embedding"]:
+        raise ValueError("Pallier2025 warm-start 的文本表示合同不一致。")
+
+    event_manifest = json.loads(
+        (PROJECT_ROOT / "derived/pallier2025/events/manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    text_manifest = json.loads(
+        (
+            PROJECT_ROOT
+            / "derived/pallier2025/text/t5_large_layer_0_5/manifest.json"
+        ).read_text(encoding="utf-8")
+    )
+    split_manifest = json.loads(
+        (VOCABULARY_ASSET_DIRECTORY / "run_split.json").read_text(encoding="utf-8")
+    )
+    source_dataset = checkpoint.get("dataset_contract", {})
+    expected_contract = {
+        "dataset": "pallier2025",
+        "subjects": list(config["dataset"]["subjects"]),
+        "subject_order": list(config["dataset"]["subjects"]),
+        "runs": list(config["dataset"]["runs"]),
+        "split": split_manifest["assignments"],
+        "split_manifest_sha256": split_manifest["manifest_sha256"],
+        "event_table_sha256": event_manifest["event_table_sha256"],
+        "window_contract_version": config["dataset"]["window_contract_version"],
+        "window_start_offset_seconds": config["dataset"][
+            "window_start_offset_seconds"
+        ],
+        "window_seconds": config["dataset"]["window_seconds"],
+        "eligibility_window_seconds": config["dataset"][
+            "eligibility_window_seconds"
+        ],
+        "baseline_seconds": config["dataset"]["baseline_seconds"],
+        "clamp": config["dataset"]["clamp"],
+        "target_sampling_rate_hz": config["dataset"]["target_sampling_rate_hz"],
+        "channel_names_sha256": config["dataset"]["channel_names_sha256"],
+        "training_vocabulary_policy": config["dataset"][
+            "training_vocabulary_policy"
+        ],
+        "evaluation_vocabulary_policy": config["dataset"][
+            "evaluation_vocabulary_policy"
+        ],
+        "text_content_sha256": text_manifest["content_sha256"],
+    }
+    for field, expected in expected_contract.items():
+        if source_dataset.get(field) != expected:
+            raise ValueError(f"Pallier2025 warm-start 数据合同不一致：{field}")
+
+    if tuple(checkpoint.get("channel_names", ())) != tuple(channel_names):
+        raise ValueError("Pallier2025 warm-start 的 MEG 通道顺序不一致。")
+    source_positions = np.asarray(checkpoint.get("channel_positions", ()))
+    target_positions = np.asarray(channel_positions)
+    if source_positions.shape != target_positions.shape or not np.allclose(
+        source_positions,
+        target_positions,
+        rtol=0.0,
+        atol=1e-7,
+    ):
+        raise ValueError("Pallier2025 warm-start 的通道位置合同不一致。")
+
+    prefix = "brain_encoder."
+    encoder_state = {
+        key[len(prefix) :]: value
+        for key, value in checkpoint["model_state"].items()
+        if key.startswith(prefix)
+    }
+    if not encoder_state:
+        raise ValueError("Pallier2025 warm-start 检查点不包含 brain_encoder 参数。")
+    model.brain_encoder.load_state_dict(encoder_state, strict=True)
+    source_metrics = checkpoint.get("metrics", {})
+    return {
+        "method": "main_word_best_checkpoint_brain_encoder_only",
+        "source_checkpoint": str(checkpoint_path),
+        "source_checkpoint_sha256": file_sha256(checkpoint_path),
+        "source_epoch": int(checkpoint["epoch"]),
+        "source_update": int(checkpoint.get("optimizer_updates", 0)),
+        "source_macro_r_at_10": source_metrics.get(
+            "retrieval_acc10_vocab=pallier2025_50_macro"
+        ),
+        "loaded_loss_state": False,
+        "loaded_transformer_state": False,
+    }
 
 
 def evaluate_loader(model, loader, device, top_ks=(1, 10), amp=True):
@@ -274,17 +383,13 @@ def run_training(config, smoke=False, save=True, force_cache=False):
     """训练 Pallier word/context；只消费 train 与 validation canonical 数据。"""
     del force_cache  # Pallier canonical 训练不允许重建或回退数据缓存。
     training_config = dict(config["training"])
-    forbidden = {
-        key: training_config.get(key)
-        for key in (
-            "warm_start_from",
-            "pretrained_brain_encoder_checkpoint",
-            "freeze_brain_encoder_updates",
-        )
-        if training_config.get(key) not in (None, 0, "")
-    }
-    if forbidden:
-        raise ValueError(f"Pallier2025 正式实验不使用 warm-start/freeze：{forbidden}")
+    warm_start = bool(training_config.get("pretrained_brain_encoder_checkpoint"))
+    if warm_start and training_config.get("warm_start_from") != "main_word":
+        raise ValueError("Pallier2025 context 只能从同 scope 的 main_word warm-start。")
+    if warm_start and not bool(config["model"].get("use_transformer", False)):
+        raise ValueError("Pallier2025 warm-start 只用于启用 Transformer 的 context 条件。")
+    if training_config.get("freeze_brain_encoder_updates") not in (None, 0, ""):
+        raise ValueError("Pallier2025 warm-start 不引入额外 brain encoder freeze 阶段。")
     if int(config["model"]["embedding_dimension"]) != int(
         config["text_embedding"]["embedding_dimension"]
     ):
@@ -341,6 +446,15 @@ def run_training(config, smoke=False, save=True, force_cache=False):
         config["model"],
     ).to(device)
     loss_module = build_siglip_loss(config["loss"]).to(device)
+    initialization_audit = None
+    if warm_start:
+        initialization_audit = load_pretrained_brain_encoder(
+            model,
+            training_config["pretrained_brain_encoder_checkpoint"],
+            config,
+            train_dataset.channel_names,
+            train_dataset.channel_positions,
+        )
     optimizer = build_adamw_for_modules([model, loss_module], training_config)
 
     max_updates = int(training_config["max_updates"])
@@ -488,7 +602,7 @@ def run_training(config, smoke=False, save=True, force_cache=False):
         "meg_shape": [train_dataset.channel_count, train_dataset.window_samples],
         "model_parameter_count": parameter_count(model),
         "loss_parameter_count": parameter_count(loss_module),
-        "initialization_audit": None,
+        "initialization_audit": initialization_audit,
         "freeze_brain_encoder_updates": 0,
         "text_embedding_contract": config["text_embedding"],
         "selection_metric": selection_metric,

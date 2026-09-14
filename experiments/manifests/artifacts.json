@@ -3,9 +3,9 @@
   "status": "frozen_after_content_preserving_move",
   "artifact_root": "artifacts",
   "hash_contract": "sha256(canonical_json_without_manifest_sha256)",
-  "manifest_sha256": "3e8dba6e196d43568ad37a10ef91e9abab013f005dfefa7c5f54f6d657ff8ba1",
+  "manifest_sha256": "41784c6e5f4faff32841bf5f8f0d5f5edc5202d1b5ccb8bf178e008bf3100cfb",
   "event_table_migration_validation": {
-    "config": "configs/word_decoding/chineseeeg2_littleprince/sub01-08/main_context.yaml",
+    "config": "configs/word_decoding/chineseeeg2_littleprince/sub01-08/main_context_warmstart.yaml",
     "subject_scope": "sub01-08",
     "context_grouping": "semantic_v1",
     "row_count_before": 112492,

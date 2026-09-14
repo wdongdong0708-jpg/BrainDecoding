@@ -33,18 +33,23 @@ def _pallier_selectors():
     }
 
 
-def test_catalog_finds_only_two_pallier_main_experiments():
+def test_catalog_finds_pallier_scratch_and_warmstart_context_experiments():
     assert _pallier_selectors() == {
         "pallier2025/sub01-10/main_word",
         "pallier2025/sub01-10/main_context",
+        "pallier2025/sub01-10/main_context_warmstart",
     }
 
 
 @pytest.mark.parametrize(
-    ("selector", "use_transformer"),
-    (("pallier2025/sub01-10/main_word", False), ("pallier2025/sub01-10/main_context", True)),
+    ("selector", "use_transformer", "warm_start"),
+    (
+        ("pallier2025/sub01-10/main_word", False, False),
+        ("pallier2025/sub01-10/main_context", True, False),
+        ("pallier2025/sub01-10/main_context_warmstart", True, True),
+    ),
 )
-def test_pallier_resolved_scientific_contract(selector, use_transformer):
+def test_pallier_resolved_scientific_contract(selector, use_transformer, warm_start):
     _, config = load_experiment(selector)
     assert config["experiment"]["subject_scope"] == "sub01-10"
     assert tuple(config["dataset"]["subjects"]) == pallier2025.SUBJECTS
@@ -68,12 +73,21 @@ def test_pallier_resolved_scientific_contract(selector, use_transformer):
         "available": False,
         "reason": "domain_reference_not_frozen",
     }
-    for key in (
-        "warm_start_from",
-        "pretrained_brain_encoder_checkpoint",
-        "freeze_brain_encoder_updates",
-    ):
-        assert key not in config["training"]
+    if warm_start:
+        assert config["training"]["warm_start_from"] == "main_word"
+        assert config["training"]["pretrained_brain_encoder_checkpoint"].replace(
+            "\\", "/"
+        ).endswith(
+            "outputs/word_decoding/pallier2025/sub01-10/main_word/seed-000/best.pt"
+        )
+        assert "freeze_brain_encoder_updates" not in config["training"]
+    else:
+        for key in (
+            "warm_start_from",
+            "pretrained_brain_encoder_checkpoint",
+            "freeze_brain_encoder_updates",
+        ):
+            assert key not in config["training"]
     if use_transformer:
         assert config["dataset"]["runtime_context_grouping"] == (
             pallier2025.RUNTIME_CONTEXT_GROUPING
@@ -332,8 +346,12 @@ def test_validation_query_set_and_frozen_data_assets_do_not_drift():
 def test_only_context_model_uses_runtime_sampler_grouping():
     _, word = load_experiment("pallier2025/sub01-10/main_word")
     _, context = load_experiment("pallier2025/sub01-10/main_context")
+    _, warmstart = load_experiment(
+        "pallier2025/sub01-10/main_context_warmstart"
+    )
     assert train.loader_group_column(word) == "sentence_uid"
     assert train.loader_group_column(context) == pallier2025.RUNTIME_CONTEXT_COLUMN
+    assert train.loader_group_column(warmstart) == pallier2025.RUNTIME_CONTEXT_COLUMN
     assert context["dataset"]["runtime_context_grouping"] == (
         pallier2025.RUNTIME_CONTEXT_GROUPING
     )
@@ -353,7 +371,9 @@ def test_training_vocabulary_is_not_limited_to_candidate_manifests():
     assert all(payload["source_split"] == "train" for payload in vocabularies.values())
 
 
-def test_pallier_preflight_contract_is_valid_and_has_no_dependency(tmp_path):
+def test_pallier_preflight_contract_is_valid_for_all_initialization_conditions(
+    tmp_path,
+):
     event_manifest = json.loads(
         (PROJECT_ROOT / "derived/pallier2025/events/manifest.json").read_text(
             encoding="utf-8"
@@ -362,6 +382,7 @@ def test_pallier_preflight_contract_is_valid_and_has_no_dependency(tmp_path):
     for selector in (
         "pallier2025/sub01-10/main_word",
         "pallier2025/sub01-10/main_context",
+        "pallier2025/sub01-10/main_context_warmstart",
     ):
         _, config = load_experiment(selector, output_root=tmp_path)
         contract = preflight._pallier_contract_status(config, event_manifest)
@@ -375,6 +396,7 @@ def test_pallier_scientific_hashes_are_frozen():
     expected = {
         "pallier2025/sub01-10/main_word": "aae9935c9505ee69ef4df84a204cac1521da7886f0457846df5eccca73bf5f02",
         "pallier2025/sub01-10/main_context": "5f93c715d96b6db671ceda329d0ec2d7d7f8f667a4c6ed7f5225a49627a59682",
+        "pallier2025/sub01-10/main_context_warmstart": "04d639c467f6625c6fd0f96e524860cc54303a42b98b40704c99a094e300a61b",
     }
     for selector, digest in expected.items():
         _, config = load_experiment(selector)
@@ -407,6 +429,59 @@ def test_checkpoint_payload_carries_frozen_dataset_contract():
     assert contract["eligibility_window_seconds"] == 3.0
     assert contract["baseline_seconds"] == 0.5
     assert set(contract["vocabulary_manifest_sha256"]) == {"20", "50", "100", "150"}
+
+
+def test_pallier_warm_start_loads_only_main_word_brain_encoder(tmp_path):
+    class _TinyModel(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.brain_encoder = torch.nn.Linear(2, 2)
+            self.context_transformer = torch.nn.Linear(2, 2)
+
+    _, word_config = load_experiment("pallier2025/sub01-10/main_word")
+    _, context_config = load_experiment(
+        "pallier2025/sub01-10/main_context_warmstart"
+    )
+    channel_names = [f"MEG{index:04d}" for index in range(306)]
+    channel_positions = np.zeros((306, 2), dtype=np.float32)
+    torch.manual_seed(1)
+    source = _TinyModel()
+    payload = train.checkpoint_payload(
+        source,
+        torch.nn.Linear(1, 1),
+        word_config,
+        5,
+        {"retrieval_acc10_vocab=pallier2025_50_macro": 0.25},
+        channel_names,
+        channel_positions,
+        optimizer_updates=5902,
+    )
+    checkpoint = tmp_path / "best.pt"
+    torch.save(payload, checkpoint)
+
+    torch.manual_seed(2)
+    target = _TinyModel()
+    transformer_before = {
+        key: value.detach().clone()
+        for key, value in target.context_transformer.state_dict().items()
+    }
+    audit = train.load_pretrained_brain_encoder(
+        target,
+        checkpoint,
+        context_config,
+        channel_names,
+        channel_positions,
+    )
+
+    for key, value in source.brain_encoder.state_dict().items():
+        torch.testing.assert_close(target.brain_encoder.state_dict()[key], value)
+    for key, value in transformer_before.items():
+        torch.testing.assert_close(target.context_transformer.state_dict()[key], value)
+    assert audit["method"] == "main_word_best_checkpoint_brain_encoder_only"
+    assert audit["source_epoch"] == 5
+    assert audit["source_update"] == 5902
+    assert audit["loaded_loss_state"] is False
+    assert audit["loaded_transformer_state"] is False
 
 
 def test_pallier_evaluator_has_no_test_option():
