@@ -5,7 +5,7 @@ experiment:
   dataset: pallier2025
   subject_scope: sub01-10
   id: main_context
-  category: main
+  category: historical_diagnostic
 
 dataset:
   runtime_context_grouping: recording_id_plus_canonical_context_v1

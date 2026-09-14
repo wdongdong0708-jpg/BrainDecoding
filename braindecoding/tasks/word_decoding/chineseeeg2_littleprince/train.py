@@ -41,7 +41,11 @@ from braindecoding.training.runtime import (
     save_json,
     set_seed,
 )
-from braindecoding.training.word import make_loader
+from braindecoding.training.word import (
+    brain_encoder_frozen_for_epoch,
+    make_loader,
+    validation_patience_exhausted,
+)
 from braindecoding.data import chineseeeg2 as dataset_module
 from braindecoding.losses import build_siglip_loss
 from braindecoding.evaluation.retrieval import fixed_vocabulary_retrieval_metrics
@@ -281,12 +285,13 @@ def 训练一轮(
     scaler,
     device,
     config,
-    maximum_updates,
-    scheduler,
+    maximum_updates=None,
+    scheduler=None,
     starting_optimizer_updates=0,
     freeze_brain_encoder_updates=0,
+    freeze_brain_encoder=None,
 ):
-    """训练一轮，并且不越过剩余优化器更新预算。"""
+    """训练一轮；legacy 模式可继续限制成功 optimizer update 数。"""
     model.train()
     loss_module.train()
     use_amp = bool(config.get("amp", True)) and device.type == "cuda"
@@ -298,10 +303,12 @@ def 训练一轮(
     batches_seen = 0
     previous_frozen_state = None
     for batch in loader:
-        if update_count >= int(maximum_updates):
+        if maximum_updates is not None and update_count >= int(maximum_updates):
             break
         encoder_is_frozen = (
-            int(starting_optimizer_updates) + update_count
+            bool(freeze_brain_encoder)
+            if freeze_brain_encoder is not None
+            else int(starting_optimizer_updates) + update_count
             < int(freeze_brain_encoder_updates)
         )
         if encoder_is_frozen != previous_frozen_state:
@@ -331,7 +338,8 @@ def 训练一轮(
                 frozen_update_count += 1
             else:
                 joint_update_count += 1
-            scheduler.step()
+            if scheduler is not None:
+                scheduler.step()
         loss_sum += float(loss.detach()) * len(eeg)
         sample_count += len(eeg)
         batches_seen += 1
@@ -472,7 +480,7 @@ def 检查点内容(
 
 
 def 执行训练(config, smoke=False, save=True, force_cache=False):
-    """在训练与验证集上执行固定更新预算训练，测试集始终锁定。"""
+    """在训练与验证集上训练；active v2 使用 epoch/patience 生命周期。"""
     training_config = dict(config["training"])
     staged_training = bool(
         training_config.get("pretrained_brain_encoder_checkpoint")
@@ -482,39 +490,53 @@ def 执行训练(config, smoke=False, save=True, force_cache=False):
     ):
         raise ValueError("模型输出维数与文本目标维数不一致。")
     if smoke:
-        training_config["epochs"] = 1
-        training_config["patience"] = 1
+        training_config["epochs"] = 2 if staged_training else 1
+        training_config["patience"] = training_config["epochs"]
         training_config["batch_size"] = min(
             int(training_config["batch_size"]), 16
         )
-        smoke_updates = 2 if staged_training else 1
-        training_config["max_updates"] = smoke_updates
-        training_config["minimum_updates_before_early_stopping"] = smoke_updates
         if staged_training:
-            training_config["freeze_brain_encoder_updates"] = 1
+            training_config["freeze_brain_encoder_epochs"] = 1
 
-    max_updates = int(training_config["max_updates"])
+    max_updates = training_config.get("max_updates")
+    if max_updates is not None:
+        max_updates = int(max_updates)
     minimum_updates = int(
         training_config.get("minimum_updates_before_early_stopping", 0)
     )
     scheduler_horizon = int(
-        training_config.get("scheduler_total_updates", max_updates)
+        training_config.get(
+            "scheduler_total_updates",
+            max_updates if max_updates is not None else training_config["epochs"],
+        )
     )
-    if max_updates <= 0 or minimum_updates < 0 or minimum_updates > max_updates:
+    if max_updates is not None and (
+        max_updates <= 0 or minimum_updates < 0 or minimum_updates > max_updates
+    ):
         raise ValueError("优化器更新预算无效。")
-    if scheduler_horizon < max_updates:
+    if max_updates is not None and scheduler_horizon < max_updates:
         raise ValueError("余弦调度总步数不能小于训练更新预算。")
     freeze_brain_encoder_updates = int(
         training_config.get("freeze_brain_encoder_updates", 0)
     )
     if freeze_brain_encoder_updates < 0:
         raise ValueError("冻结 CNN 的更新次数不能为负数。")
-    if staged_training:
+    freeze_brain_encoder_epochs = int(
+        training_config.get("freeze_brain_encoder_epochs", 0)
+    )
+    if freeze_brain_encoder_epochs < 0:
+        raise ValueError("冻结 brain encoder 的 epoch 数不能为负数。")
+    if staged_training and max_updates is not None:
         if not bool(config["model"].get("use_transformer", True)):
             raise ValueError("CNN 预热的第二阶段必须启用 Transformer。")
         if not 0 < freeze_brain_encoder_updates < max_updates:
             raise ValueError("第二阶段必须先冻结 CNN，再留出联合训练更新。")
-    elif freeze_brain_encoder_updates:
+    elif staged_training:
+        if not 0 < freeze_brain_encoder_epochs < int(training_config["epochs"]):
+            raise ValueError("warm-start context 的冻结轮数必须大于零且小于总轮数。")
+        if freeze_brain_encoder_updates:
+            raise ValueError("epoch 生命周期不能同时使用 update 冻结字段。")
+    elif freeze_brain_encoder_updates or freeze_brain_encoder_epochs:
         raise ValueError("没有预训练 CNN 检查点时不能设置冻结阶段。")
 
     set_seed(int(training_config["seed"]))
@@ -564,8 +586,6 @@ def 执行训练(config, smoke=False, save=True, force_cache=False):
             vocabulary,
         )
     optimizer = build_adamw_for_modules([model, loss_module], training_config)
-    if staged_training:
-        设置脑编码器可训练(model, False)
     scheduler = build_cosine_annealing_scheduler(
         optimizer,
         scheduler_horizon,
@@ -597,6 +617,13 @@ def 执行训练(config, smoke=False, save=True, force_cache=False):
     history = []
     for epoch in range(int(training_config["epochs"])):
         train_sampler.set_epoch(epoch)
+        encoder_is_frozen = (
+            staged_training
+            and max_updates is None
+            and brain_encoder_frozen_for_epoch(epoch, freeze_brain_encoder_epochs)
+        )
+        if max_updates is None:
+            设置脑编码器可训练(model, not encoder_is_frozen)
         (
             train_loss,
             epoch_updates,
@@ -611,10 +638,15 @@ def 执行训练(config, smoke=False, save=True, force_cache=False):
             scaler,
             device,
             training_config,
-            max_updates - optimizer_updates,
-            scheduler,
+            (
+                max_updates - optimizer_updates
+                if max_updates is not None
+                else None
+            ),
+            scheduler if max_updates is not None else None,
             starting_optimizer_updates=optimizer_updates,
             freeze_brain_encoder_updates=freeze_brain_encoder_updates,
+            freeze_brain_encoder=(encoder_is_frozen if max_updates is None else None),
         )
         optimizer_updates += epoch_updates
         frozen_encoder_updates += epoch_frozen_updates
@@ -627,6 +659,8 @@ def 执行训练(config, smoke=False, save=True, force_cache=False):
             top_ks=top_ks,
             amp=training_config.get("amp", True),
         )
+        if max_updates is None:
+            scheduler.step()
         score = float(validation_metrics[selection_metric])
         epoch_record = {
             "epoch": epoch + 1,
@@ -637,9 +671,19 @@ def 执行训练(config, smoke=False, save=True, force_cache=False):
             "batches_seen": int(batches_seen),
             "frozen_encoder_optimizer_updates": int(epoch_frozen_updates),
             "joint_optimizer_updates": int(epoch_joint_updates),
+            "cumulative_optimizer_updates": int(optimizer_updates),
+            "brain_encoder_frozen": bool(
+                encoder_is_frozen
+                if max_updates is None
+                else optimizer_updates < freeze_brain_encoder_updates
+            ),
             "training_phase_at_epoch_end": (
-                "cnn_frozen"
-                if optimizer_updates < freeze_brain_encoder_updates
+                "transformer_only"
+                if (
+                    encoder_is_frozen
+                    if max_updates is None
+                    else optimizer_updates < freeze_brain_encoder_updates
+                )
                 else "joint"
             ),
             **validation_metrics,
@@ -669,7 +713,7 @@ def 执行训练(config, smoke=False, save=True, force_cache=False):
                         optimizer_updates,
                         initialization_audit=initialization_audit,
                         training_phase={
-                            "freeze_brain_encoder_updates": freeze_brain_encoder_updates,
+                            "freeze_brain_encoder_epochs": freeze_brain_encoder_epochs,
                             "frozen_encoder_optimizer_updates": frozen_encoder_updates,
                             "joint_optimizer_updates": joint_updates,
                         },
@@ -697,25 +741,24 @@ def 执行训练(config, smoke=False, save=True, force_cache=False):
                     scheduler=scheduler,
                     initialization_audit=initialization_audit,
                     training_phase={
-                        "freeze_brain_encoder_updates": freeze_brain_encoder_updates,
+                        "freeze_brain_encoder_epochs": freeze_brain_encoder_epochs,
                         "frozen_encoder_optimizer_updates": frozen_encoder_updates,
                         "joint_optimizer_updates": joint_updates,
                     },
                 ),
             )
-        if optimizer_updates >= max_updates:
+        if max_updates is not None and optimizer_updates >= max_updates:
             stop_reason = "update_budget_reached"
             break
-        if (
-            epochs_without_improvement >= int(training_config["patience"])
-            and optimizer_updates >= minimum_updates
+        if validation_patience_exhausted(
+            epochs_without_improvement, training_config["patience"]
         ):
             stop_reason = "early_stopping"
             break
 
     if best_epoch is None:
         raise RuntimeError("训练没有产生有效的验证指标。")
-    if optimizer_updates < minimum_updates:
+    if max_updates is not None and optimizer_updates < minimum_updates:
         raise RuntimeError(
             f"训练仅完成 {optimizer_updates} 次更新，低于要求的 {minimum_updates} 次。"
         )
@@ -736,6 +779,7 @@ def 执行训练(config, smoke=False, save=True, force_cache=False):
         "loss_parameter_count": parameter_count(loss_module),
         "initialization_audit": initialization_audit,
         "freeze_brain_encoder_updates": freeze_brain_encoder_updates,
+        "freeze_brain_encoder_epochs": freeze_brain_encoder_epochs,
         "frozen_encoder_optimizer_updates": int(frozen_encoder_updates),
         "joint_optimizer_updates": int(joint_updates),
         "selection_metric": selection_metric,
@@ -748,6 +792,8 @@ def 执行训练(config, smoke=False, save=True, force_cache=False):
         "batch_size_limit": int(training_config["batch_size"]),
         "estimated_batches_per_epoch": len(train_loader),
         "stop_reason": stop_reason,
+        "epochs_without_improvement": int(epochs_without_improvement),
+        "final_learning_rate": float(optimizer.param_groups[0]["lr"]),
         "history": history,
         "test_status": "locked_not_evaluated",
     }
@@ -778,7 +824,7 @@ def 打印训练摘要(summary):
     )
     print(
         f"  优化器更新：{summary['optimizer_updates']} / "
-        f"{summary['target_updates']}"
+        f"{summary['target_updates'] or 'epoch-scheduled'}"
     )
     print("  测试集：已锁定，未评估")
 

@@ -16,7 +16,8 @@ model:
 
 training:
   warm_start_from: main_word
+  freeze_brain_encoder_epochs: 1
 
 provenance:
   context_condition: frozen_sequence_grouped_transformer
-  initialization: main_word_brain_encoder_only_then_joint_training
+  initialization: main_word_brain_encoder_only_freeze_epoch_1_then_joint_training

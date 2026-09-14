@@ -33,10 +33,9 @@ def _pallier_selectors():
     }
 
 
-def test_catalog_finds_pallier_scratch_and_warmstart_context_experiments():
+def test_catalog_finds_only_pallier_v2_main_experiments():
     assert _pallier_selectors() == {
         "pallier2025/sub01-10/main_word",
-        "pallier2025/sub01-10/main_context",
         "pallier2025/sub01-10/main_context_warmstart",
     }
 
@@ -45,7 +44,6 @@ def test_catalog_finds_pallier_scratch_and_warmstart_context_experiments():
     ("selector", "use_transformer", "warm_start"),
     (
         ("pallier2025/sub01-10/main_word", False, False),
-        ("pallier2025/sub01-10/main_context", True, False),
         ("pallier2025/sub01-10/main_context_warmstart", True, True),
     ),
 )
@@ -62,9 +60,14 @@ def test_pallier_resolved_scientific_contract(selector, use_transformer, warm_st
     assert config["dataset"]["eligibility_window_seconds"] == 3.0
     assert config["dataset"]["baseline_seconds"] == 0.5
     assert config["dataset"]["clamp"] == 5.0
-    assert config["training"]["max_updates"] == 6400
-    assert config["training"]["minimum_updates_before_early_stopping"] == 6400
-    assert config["training"]["scheduler_total_updates"] == 12800
+    assert config["training"]["epochs"] == 30
+    assert config["training"]["patience"] == 10
+    for key in (
+        "max_updates",
+        "minimum_updates_before_early_stopping",
+        "scheduler_total_updates",
+    ):
+        assert key not in config["training"]
     assert config["evaluation"]["selection_metric"] == (
         "retrieval_acc10_vocab=pallier2025_50_macro"
     )
@@ -80,6 +83,7 @@ def test_pallier_resolved_scientific_contract(selector, use_transformer, warm_st
         ).endswith(
             "outputs/word_decoding/pallier2025/sub01-10/main_word/seed-000/best.pt"
         )
+        assert config["training"]["freeze_brain_encoder_epochs"] == 1
         assert "freeze_brain_encoder_updates" not in config["training"]
     else:
         for key in (
@@ -345,14 +349,12 @@ def test_validation_query_set_and_frozen_data_assets_do_not_drift():
 
 def test_only_context_model_uses_runtime_sampler_grouping():
     _, word = load_experiment("pallier2025/sub01-10/main_word")
-    _, context = load_experiment("pallier2025/sub01-10/main_context")
     _, warmstart = load_experiment(
         "pallier2025/sub01-10/main_context_warmstart"
     )
     assert train.loader_group_column(word) == "sentence_uid"
-    assert train.loader_group_column(context) == pallier2025.RUNTIME_CONTEXT_COLUMN
     assert train.loader_group_column(warmstart) == pallier2025.RUNTIME_CONTEXT_COLUMN
-    assert context["dataset"]["runtime_context_grouping"] == (
+    assert warmstart["dataset"]["runtime_context_grouping"] == (
         pallier2025.RUNTIME_CONTEXT_GROUPING
     )
 
@@ -381,7 +383,6 @@ def test_pallier_preflight_contract_is_valid_for_all_initialization_conditions(
     )
     for selector in (
         "pallier2025/sub01-10/main_word",
-        "pallier2025/sub01-10/main_context",
         "pallier2025/sub01-10/main_context_warmstart",
     ):
         _, config = load_experiment(selector, output_root=tmp_path)
@@ -394,9 +395,8 @@ def test_pallier_preflight_contract_is_valid_for_all_initialization_conditions(
 
 def test_pallier_scientific_hashes_are_frozen():
     expected = {
-        "pallier2025/sub01-10/main_word": "aae9935c9505ee69ef4df84a204cac1521da7886f0457846df5eccca73bf5f02",
-        "pallier2025/sub01-10/main_context": "5f93c715d96b6db671ceda329d0ec2d7d7f8f667a4c6ed7f5225a49627a59682",
-        "pallier2025/sub01-10/main_context_warmstart": "04d639c467f6625c6fd0f96e524860cc54303a42b98b40704c99a094e300a61b",
+        "pallier2025/sub01-10/main_word": "5c6f68f711d19c341b71d75e654c607b88ba1c606ae8b2fad0377ee680d12ff6",
+        "pallier2025/sub01-10/main_context_warmstart": "24d8882f690bcb0b918efe83574036b94625a793954555bd3bc9610c2336a2d1",
     }
     for selector, digest in expected.items():
         _, config = load_experiment(selector)

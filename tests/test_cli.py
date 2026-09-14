@@ -22,9 +22,8 @@ SELECTORS = {
     "smn4lang/sub01-06/main_word",
     "smn4lang/sub01-06/main_context_warmstart",
     "libribrain100/sub0/main_word",
-    "libribrain100/sub0/main_context",
+    "libribrain100/sub0/main_context_warmstart",
     "pallier2025/sub01-10/main_word",
-    "pallier2025/sub01-10/main_context",
     "pallier2025/sub01-10/main_context_warmstart",
 }
 
@@ -111,7 +110,7 @@ def test_status_marks_implementation_diagnostic_without_changing_run_manifest(
         encoding="utf-8",
     )
     monkeypatch.setattr(cli, "run_directory", lambda config: output)
-    record = resolve_selector("pallier2025/sub01-10/main_context")
+    record = resolve_selector("pallier2025/sub01-10/main_context_warmstart")
     state = cli._run_status(record)
     assert state["status"] == "implementation_diagnostic"
     assert state["manifest"] == {"status": "completed"}

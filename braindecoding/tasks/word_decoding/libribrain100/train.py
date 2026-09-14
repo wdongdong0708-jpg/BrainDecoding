@@ -41,10 +41,12 @@ from braindecoding.training.runtime import (
 )
 from braindecoding.training.word import (
     SentenceBatchSampler,
+    brain_encoder_frozen_for_epoch,
     encode_loader,
     make_loader,
     move_batch,
     train_one_epoch,
+    validation_patience_exhausted,
 )
 from braindecoding.data import libribrain as dataset_module
 from braindecoding.losses import build_siglip_loss
@@ -249,6 +251,7 @@ def checkpoint_payload(
     scheduler=None,
     initialization_audit=None,
     training_phase=None,
+    optimizer_updates=None,
 ):
     payload = {
         "format_version": 1,
@@ -280,6 +283,8 @@ def checkpoint_payload(
         payload["initialization_audit"] = initialization_audit
     if training_phase is not None:
         payload["training_phase"] = training_phase
+    if optimizer_updates is not None:
+        payload["optimizer_updates"] = int(optimizer_updates)
     return payload
 
 
@@ -376,12 +381,18 @@ def run_training(config, smoke=False, save=True, force_cache=False):
     best_model_state = None
     best_loss_state = None
     epochs_without_improvement = 0
+    optimizer_updates = 0
+    frozen_encoder_updates = 0
+    joint_updates = 0
+    stop_reason = "maximum_epochs_reached"
     history = []
     for epoch in range(int(training_config["epochs"])):
         train_sampler.set_epoch(epoch)
-        encoder_is_frozen = epoch < freeze_brain_encoder_epochs
+        encoder_is_frozen = brain_encoder_frozen_for_epoch(
+            epoch, freeze_brain_encoder_epochs
+        )
         set_brain_encoder_trainable(model, not encoder_is_frozen)
-        train_loss = train_one_epoch(
+        train_loss, epoch_optimizer_updates, batches_seen = train_one_epoch(
             model,
             loss_module,
             train_loader,
@@ -390,7 +401,13 @@ def run_training(config, smoke=False, save=True, force_cache=False):
             device,
             training_config,
             freeze_brain_encoder=encoder_is_frozen,
+            return_stats=True,
         )
+        optimizer_updates += epoch_optimizer_updates
+        if encoder_is_frozen:
+            frozen_encoder_updates += epoch_optimizer_updates
+        else:
+            joint_updates += epoch_optimizer_updates
         validation_metrics, _ = evaluate_loader(
             model,
             val_loader,
@@ -404,6 +421,14 @@ def run_training(config, smoke=False, save=True, force_cache=False):
             "epoch": epoch + 1,
             "train_loss": train_loss,
             "learning_rate": float(optimizer.param_groups[0]["lr"]),
+            "epoch_optimizer_updates": int(epoch_optimizer_updates),
+            "optimizer_updates": int(optimizer_updates),
+            "cumulative_optimizer_updates": int(optimizer_updates),
+            "batches_seen": int(batches_seen),
+            "brain_encoder_frozen": bool(encoder_is_frozen),
+            "training_phase_at_epoch_end": (
+                "transformer_only" if encoder_is_frozen else "joint"
+            ),
             **validation_metrics,
         }
         history.append(epoch_record)
@@ -429,9 +454,12 @@ def run_training(config, smoke=False, save=True, force_cache=False):
                         train_dataset.channel_names,
                         train_dataset.channel_positions,
                         initialization_audit=initialization_audit,
+                        optimizer_updates=optimizer_updates,
                         training_phase={
                             "freeze_brain_encoder_epochs": freeze_brain_encoder_epochs,
                             "encoder_frozen_this_epoch": encoder_is_frozen,
+                            "frozen_encoder_optimizer_updates": frozen_encoder_updates,
+                            "joint_optimizer_updates": joint_updates,
                         },
                     ),
                 )
@@ -455,13 +483,19 @@ def run_training(config, smoke=False, save=True, force_cache=False):
                     optimizer=optimizer,
                     scheduler=scheduler,
                     initialization_audit=initialization_audit,
+                    optimizer_updates=optimizer_updates,
                     training_phase={
                         "freeze_brain_encoder_epochs": freeze_brain_encoder_epochs,
                         "encoder_frozen_this_epoch": encoder_is_frozen,
+                        "frozen_encoder_optimizer_updates": frozen_encoder_updates,
+                        "joint_optimizer_updates": joint_updates,
                     },
                 ),
             )
-        if epochs_without_improvement >= int(training_config["patience"]):
+        if validation_patience_exhausted(
+            epochs_without_improvement, training_config["patience"]
+        ):
+            stop_reason = "early_stopping"
             break
 
     if best_epoch is None:
@@ -482,10 +516,17 @@ def run_training(config, smoke=False, save=True, force_cache=False):
         "loss_parameter_count": parameter_count(loss_module),
         "initialization_audit": initialization_audit,
         "freeze_brain_encoder_epochs": freeze_brain_encoder_epochs,
+        "frozen_encoder_optimizer_updates": int(frozen_encoder_updates),
+        "joint_optimizer_updates": int(joint_updates),
         "selection_metric": selection_metric,
         "best_epoch": best_epoch,
         "best_score": best_score,
         "best_validation": best_metrics,
+        "optimizer_updates": int(optimizer_updates),
+        "target_updates": None,
+        "stop_reason": stop_reason,
+        "epochs_without_improvement": int(epochs_without_improvement),
+        "final_learning_rate": float(optimizer.param_groups[0]["lr"]),
         "history": history,
         "test_status": "locked_not_evaluated",
     }

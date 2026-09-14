@@ -5,6 +5,16 @@ import torch
 from torch.utils.data import DataLoader, Sampler
 
 
+def brain_encoder_frozen_for_epoch(epoch_index, freeze_epochs):
+    """按零基 epoch 冻结 brain encoder；不把 epoch 换算为 update。"""
+    return int(epoch_index) < int(freeze_epochs)
+
+
+def validation_patience_exhausted(epochs_without_improvement, patience):
+    """validation 连续未改善轮数达到 patience 时停止。"""
+    return int(epochs_without_improvement) >= int(patience)
+
+
 class SentenceBatchSampler(Sampler):
     """打乱序列组，同时严格限制实际批次大小。
 
@@ -112,6 +122,7 @@ def train_one_epoch(
     device,
     config,
     freeze_brain_encoder=False,
+    return_stats=False,
 ):
     """执行 LibriBrain100 与 SMN4Lang 已共同使用的 epoch 级训练。"""
     model.train()
@@ -121,6 +132,8 @@ def train_one_epoch(
     use_amp = bool(config.get("amp", True)) and device.type == "cuda"
     loss_sum = 0.0
     sample_count = 0
+    optimizer_updates = 0
+    batches_seen = 0
     for batch in loader:
         meg, targets, subject_indices, sentence_indices = move_batch(batch, device)
         optimizer.zero_grad(set_to_none=True)
@@ -136,11 +149,19 @@ def train_one_epoch(
         if max_grad_norm > 0:
             scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
+        previous_scale = float(scaler.get_scale())
         scaler.step(optimizer)
         scaler.update()
+        step_succeeded = not use_amp or float(scaler.get_scale()) >= previous_scale
+        if step_succeeded:
+            optimizer_updates += 1
         loss_sum += float(loss.detach()) * len(meg)
         sample_count += len(meg)
-    return loss_sum / max(sample_count, 1)
+        batches_seen += 1
+    mean_loss = loss_sum / max(sample_count, 1)
+    if return_stats:
+        return mean_loss, optimizer_updates, batches_seen
+    return mean_loss
 
 
 @torch.inference_mode()

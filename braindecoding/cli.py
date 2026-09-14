@@ -292,6 +292,19 @@ def _audit(selector: str, mapping_only: bool, device: str) -> int:
     return 0
 
 
+def _report(selector: str, write: bool) -> int:
+    """只读取 canonical JSON，显示或写出派生的人类可读视图。"""
+    from braindecoding.results import render_run_report, write_run_report
+
+    record = resolve_selector(selector)
+    config, _, _ = _load_task_config(record)
+    markdown = render_run_report(config)
+    print(markdown)
+    if write:
+        print(f"written: {write_run_report(config)}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="brain-decoding")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -324,6 +337,9 @@ def build_parser() -> argparse.ArgumentParser:
     audit.add_argument("experiment")
     audit.add_argument("--mapping-only", action="store_true")
     audit.add_argument("--device", default="auto")
+    report = commands.add_parser("report", help="只读显示 canonical 运行结果")
+    report.add_argument("experiment")
+    report.add_argument("--write", action="store_true")
     return parser
 
 
@@ -346,6 +362,8 @@ def main(argv=None) -> int:
             return _print_status(args.experiment)
         if args.command == "audit":
             return _audit(args.experiment, args.mapping_only, args.device)
+        if args.command == "report":
+            return _report(args.experiment, args.write)
     except (FileNotFoundError, RuntimeError, ValueError) as error:
         print(str(error), file=sys.stderr)
         return 2

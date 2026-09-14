@@ -245,7 +245,7 @@ def test_ovmi_unavailable_reasons_follow_frozen_protocol():
 
 @pytest.mark.parametrize(
     "budget,expected_type,expected_value,completed_updates",
-    (("updates", "updates", 100, 82), ("epochs", "epochs", 12, None)),
+        (("updates", "updates", 100, 82), ("epochs", "epochs", 12, 82)),
 )
 def test_training_summary_represents_real_budget_types(
     tmp_path,
@@ -275,9 +275,7 @@ def test_training_summary_represents_real_budget_types(
     }
     assert result["training"]["completed_epochs"] == 2
     assert result["training"]["completed_updates"] == completed_updates
-    assert result["selection"]["best_update"] == (
-        75 if budget == "updates" else None
-    )
+    assert result["selection"]["best_update"] == 75
     assert set(result["checkpoint"]) == {"best", "last"}
 
 

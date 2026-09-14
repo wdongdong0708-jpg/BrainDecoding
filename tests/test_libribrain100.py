@@ -28,7 +28,7 @@ def test_active_word_and_context_configs_share_scientific_data_contract(monkeypa
         "configs/word_decoding/libribrain100/sub0/main_word.yaml"
     )
     context = load_config(
-        "configs/word_decoding/libribrain100/sub0/main_context.yaml"
+        "configs/word_decoding/libribrain100/sub0/main_context_warmstart.yaml"
     )
     assert context["dataset"] == word["dataset"]
     assert context["cache"] == word["cache"]
@@ -37,7 +37,8 @@ def test_active_word_and_context_configs_share_scientific_data_contract(monkeypa
     assert context["evaluation"] == word["evaluation"]
     assert word["model"]["use_transformer"] is False
     assert context["model"]["use_transformer"] is True
-    assert "pretrained_brain_encoder_checkpoint" not in context["training"]
+    assert context["training"]["warm_start_from"] == "main_word"
+    assert context["training"]["freeze_brain_encoder_epochs"] == 1
 
 
 def test_recording_materialization(tmp_path):

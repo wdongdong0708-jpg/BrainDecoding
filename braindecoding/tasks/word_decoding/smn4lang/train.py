@@ -41,10 +41,12 @@ from braindecoding.training.runtime import (
     set_seed,
 )
 from braindecoding.training.word import (
+    brain_encoder_frozen_for_epoch,
     encode_loader,
     make_loader,
     move_batch,
     train_one_epoch,
+    validation_patience_exhausted,
 )
 from braindecoding.data import smn4lang as dataset_module
 from braindecoding.losses import build_siglip_loss
@@ -405,8 +407,8 @@ def run_training(config, smoke=False, save=True, force_cache=False):
             f"{model_dimension} != {target_dimension}."
         )
     if smoke:
-        training_config["epochs"] = 1
-        training_config["patience"] = 1
+        training_config["epochs"] = 2 if staged_training else 1
+        training_config["patience"] = training_config["epochs"]
         training_config["batch_size"] = min(
             int(training_config["batch_size"]), 16
         )
@@ -416,6 +418,8 @@ def run_training(config, smoke=False, save=True, force_cache=False):
             training_config["minimum_updates_before_early_stopping"] = smoke_updates
             if staged_training:
                 training_config["freeze_brain_encoder_updates"] = 1
+        elif staged_training:
+            training_config["freeze_brain_encoder_epochs"] = 1
     set_seed(int(training_config["seed"]))
     device = choose_device(training_config.get("device", "auto"))
     event_path = ensure_event_table(config)
@@ -481,19 +485,28 @@ def run_training(config, smoke=False, save=True, force_cache=False):
     )
     if freeze_brain_encoder_updates < 0:
         raise ValueError("freeze_brain_encoder_updates cannot be negative.")
-    if staged_training and max_updates is None:
-        raise ValueError("Staged CNN warm-start requires training.max_updates.")
-    if staged_training and not 0 < freeze_brain_encoder_updates < max_updates:
+    freeze_brain_encoder_epochs = int(
+        training_config.get("freeze_brain_encoder_epochs", 0)
+    )
+    if freeze_brain_encoder_epochs < 0:
+        raise ValueError("freeze_brain_encoder_epochs cannot be negative.")
+    if staged_training and max_updates is not None and not 0 < freeze_brain_encoder_updates < max_updates:
         raise ValueError(
             "Staged CNN warm-start requires freeze_brain_encoder_updates to be "
             "between zero and max_updates."
         )
-    if not staged_training and freeze_brain_encoder_updates:
+    if staged_training and max_updates is None:
+        if not 0 < freeze_brain_encoder_epochs < int(training_config["epochs"]):
+            raise ValueError(
+                "Staged CNN warm-start requires freeze_brain_encoder_epochs "
+                "between zero and training.epochs."
+            )
+        if freeze_brain_encoder_updates:
+            raise ValueError("Epoch lifecycle cannot also use update freeze fields.")
+    if not staged_training and (freeze_brain_encoder_updates or freeze_brain_encoder_epochs):
         raise ValueError(
-            "freeze_brain_encoder_updates requires a pretrained brain encoder."
+            "Brain encoder freezing requires a pretrained brain encoder."
         )
-    if staged_training:
-        set_brain_encoder_trainable(model, False)
     scheduler_horizon = int(
         training_config.get("scheduler_total_updates", max_updates)
         if max_updates is not None
@@ -531,8 +544,14 @@ def run_training(config, smoke=False, save=True, force_cache=False):
     history = []
     for epoch in range(int(training_config["epochs"])):
         train_sampler.set_epoch(epoch)
+        encoder_is_frozen = (
+            staged_training
+            and max_updates is None
+            and brain_encoder_frozen_for_epoch(epoch, freeze_brain_encoder_epochs)
+        )
         if max_updates is None:
-            train_loss = train_one_epoch(
+            set_brain_encoder_trainable(model, not encoder_is_frozen)
+            train_loss, epoch_optimizer_updates, batches_seen = train_one_epoch(
                 model,
                 loss_module,
                 train_loader,
@@ -540,9 +559,17 @@ def run_training(config, smoke=False, save=True, force_cache=False):
                 scaler,
                 device,
                 training_config,
+                freeze_brain_encoder=encoder_is_frozen,
+                return_stats=True,
             )
-            epoch_optimizer_updates = len(train_loader)
-            batches_seen = len(train_loader)
+            epoch_frozen_updates = (
+                epoch_optimizer_updates if encoder_is_frozen else 0
+            )
+            epoch_joint_updates = (
+                0 if encoder_is_frozen else epoch_optimizer_updates
+            )
+            frozen_encoder_updates += epoch_frozen_updates
+            joint_updates += epoch_joint_updates
         else:
             remaining_updates = max_updates - optimizer_updates
             (
@@ -585,6 +612,7 @@ def run_training(config, smoke=False, save=True, force_cache=False):
             "learning_rate": float(optimizer.param_groups[0]["lr"]),
             "epoch_optimizer_updates": int(epoch_optimizer_updates),
             "optimizer_updates": int(optimizer_updates),
+            "cumulative_optimizer_updates": int(optimizer_updates),
             "batches_seen": int(batches_seen),
             "frozen_encoder_optimizer_updates": int(epoch_frozen_updates)
             if max_updates is not None
@@ -592,9 +620,18 @@ def run_training(config, smoke=False, save=True, force_cache=False):
             "joint_optimizer_updates": int(epoch_joint_updates)
             if max_updates is not None
             else int(epoch_optimizer_updates),
+            "brain_encoder_frozen": bool(
+                encoder_is_frozen
+                if max_updates is None
+                else optimizer_updates < freeze_brain_encoder_updates
+            ),
             "training_phase_at_epoch_end": (
-                "cnn_frozen"
-                if optimizer_updates < freeze_brain_encoder_updates
+                "transformer_only"
+                if (
+                    encoder_is_frozen
+                    if max_updates is None
+                    else optimizer_updates < freeze_brain_encoder_updates
+                )
                 else "joint"
             ),
             **validation_metrics,
@@ -624,7 +661,7 @@ def run_training(config, smoke=False, save=True, force_cache=False):
                         optimizer_updates=optimizer_updates,
                         initialization_audit=initialization_audit,
                         training_phase={
-                            "freeze_brain_encoder_updates": freeze_brain_encoder_updates,
+                            "freeze_brain_encoder_epochs": freeze_brain_encoder_epochs,
                             "frozen_encoder_optimizer_updates": frozen_encoder_updates,
                             "joint_optimizer_updates": joint_updates,
                         },
@@ -652,7 +689,7 @@ def run_training(config, smoke=False, save=True, force_cache=False):
                     optimizer_updates=optimizer_updates,
                     initialization_audit=initialization_audit,
                     training_phase={
-                        "freeze_brain_encoder_updates": freeze_brain_encoder_updates,
+                        "freeze_brain_encoder_epochs": freeze_brain_encoder_epochs,
                         "frozen_encoder_optimizer_updates": frozen_encoder_updates,
                         "joint_optimizer_updates": joint_updates,
                     },
@@ -661,16 +698,15 @@ def run_training(config, smoke=False, save=True, force_cache=False):
         if max_updates is not None and optimizer_updates >= max_updates:
             stop_reason = "update_budget_reached"
             break
-        if (
-            epochs_without_improvement >= int(training_config["patience"])
-            and optimizer_updates >= minimum_updates
+        if validation_patience_exhausted(
+            epochs_without_improvement, training_config["patience"]
         ):
             stop_reason = "early_stopping"
             break
 
     if best_epoch is None:
         raise RuntimeError("Training did not produce a valid validation metric.")
-    if optimizer_updates < minimum_updates:
+    if max_updates is not None and optimizer_updates < minimum_updates:
         raise RuntimeError(
             f"Training stopped after {optimizer_updates} updates before the required "
             f"minimum of {minimum_updates}. Increase training.epochs."
@@ -691,6 +727,7 @@ def run_training(config, smoke=False, save=True, force_cache=False):
         "loss_parameter_count": parameter_count(loss_module),
         "initialization_audit": initialization_audit,
         "freeze_brain_encoder_updates": freeze_brain_encoder_updates,
+        "freeze_brain_encoder_epochs": freeze_brain_encoder_epochs,
         "frozen_encoder_optimizer_updates": int(frozen_encoder_updates),
         "joint_optimizer_updates": int(joint_updates),
         "text_embedding_contract": config["text_embedding"],
@@ -704,6 +741,8 @@ def run_training(config, smoke=False, save=True, force_cache=False):
         "batch_size_limit": int(training_config["batch_size"]),
         "estimated_batches_per_epoch": len(train_loader),
         "stop_reason": stop_reason,
+        "epochs_without_improvement": int(epochs_without_improvement),
+        "final_learning_rate": float(optimizer.param_groups[0]["lr"]),
         "history": history,
         "test_status": "locked_not_evaluated",
     }

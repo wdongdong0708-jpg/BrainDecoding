@@ -95,11 +95,8 @@ training:
   device: auto
   batch_size: 128
   num_workers: 0
-  epochs: 100
+  epochs: 30
   patience: 10
-  max_updates: 6400
-  minimum_updates_before_early_stopping: 6400
-  scheduler_total_updates: 12800
   learning_rate: 0.0001
   weight_decay: 0.0
   minimum_learning_rate: 0.0

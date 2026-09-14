@@ -31,25 +31,24 @@ CANONICAL_FILES = (
     "word_decoding/smn4lang/sub01-06/main_word.yaml",
     "word_decoding/smn4lang/sub01-06/main_context_warmstart.yaml",
     "word_decoding/libribrain100/sub0/main_word.yaml",
-    "word_decoding/libribrain100/sub0/main_context.yaml",
+    "word_decoding/libribrain100/sub0/main_context_warmstart.yaml",
     "word_decoding/pallier2025/sub01-10/main_word.yaml",
-    "word_decoding/pallier2025/sub01-10/main_context.yaml",
     "word_decoding/pallier2025/sub01-10/main_context_warmstart.yaml",
 )
 ACTIVE_SCIENTIFIC_SHA256 = {
-    "word_decoding/chineseeeg2_littleprince/sub01-08/main_word.yaml": "480ac719eb6b3a143a84ebaff5b9163e578bcc0e22142d90b894a01b4f60ec4b",
-    "word_decoding/chineseeeg2_littleprince/sub01-08/main_context_warmstart.yaml": "3951b8a5d1936265da3d506ada1e74aeb5e2a34ae4466a4cb6fbdf70150d6387",
-    "word_decoding/smn4lang/sub01-06/main_word.yaml": "40fba01a86059b0b1299498b0bbff50aca2b8b0080995936604afbf84103ca1a",
-    "word_decoding/smn4lang/sub01-06/main_context_warmstart.yaml": "e4d1c2bfaafad349092e626e6722baae8032c14624cfd7f73111b2a69ccdbdf5",
-    "word_decoding/libribrain100/sub0/main_word.yaml": "af6c317dcc0b8e697504d69f887765762bf20394f7f1f7786470dfc6de951617",
-    "word_decoding/libribrain100/sub0/main_context.yaml": "bd27d21f8a7ea54c380483a019596223eee5144625a927322319bdd0e6d62385",
-    "word_decoding/pallier2025/sub01-10/main_word.yaml": "aae9935c9505ee69ef4df84a204cac1521da7886f0457846df5eccca73bf5f02",
-    "word_decoding/pallier2025/sub01-10/main_context.yaml": "5f93c715d96b6db671ceda329d0ec2d7d7f8f667a4c6ed7f5225a49627a59682",
-    "word_decoding/pallier2025/sub01-10/main_context_warmstart.yaml": "04d639c467f6625c6fd0f96e524860cc54303a42b98b40704c99a094e300a61b",
+    "word_decoding/chineseeeg2_littleprince/sub01-08/main_word.yaml": "8dd6d1bc8b90a755ebe5d88a55fc2f03fbb3373174c2faf5fb907499d216dd07",
+    "word_decoding/chineseeeg2_littleprince/sub01-08/main_context_warmstart.yaml": "2bf436237636708d94a3612d0062f2957983bf91526888b08e7e136b3e961f98",
+    "word_decoding/smn4lang/sub01-06/main_word.yaml": "4da34c56dd91c1adc2c1eb02df9c1af7bea810b3f3e0338249e3f22576d82604",
+    "word_decoding/smn4lang/sub01-06/main_context_warmstart.yaml": "d9ed5fa323c9ad4db6be80988fd5e988e40c0b023fee85f99bc8cef728bbfc90",
+    "word_decoding/libribrain100/sub0/main_word.yaml": "b32676c2fce12595eff0acc5c0804b4f567f0ee9b39c8d64be3492c8174d4ea7",
+    "word_decoding/libribrain100/sub0/main_context_warmstart.yaml": "80e374f1dd3ef0a3dc0356dba22718de85a4fc1096730963e4a453c835fc7405",
+    "word_decoding/pallier2025/sub01-10/main_word.yaml": "5c6f68f711d19c341b71d75e654c607b88ba1c606ae8b2fad0377ee680d12ff6",
+    "word_decoding/pallier2025/sub01-10/main_context_warmstart.yaml": "24d8882f690bcb0b918efe83574036b94625a793954555bd3bc9610c2336a2d1",
 }
 WARM_STARTS = {
     "word_decoding/chineseeeg2_littleprince/sub01-08/main_context_warmstart.yaml": "main_word",
     "word_decoding/smn4lang/sub01-06/main_context_warmstart.yaml": "main_word",
+    "word_decoding/libribrain100/sub0/main_context_warmstart.yaml": "main_word",
     "word_decoding/pallier2025/sub01-10/main_context_warmstart.yaml": "main_word",
 }
 @pytest.fixture(autouse=True)
@@ -88,7 +87,7 @@ def _science_signature(config):
 
 
 def test_canonical_inventory_and_identity_are_complete_and_unique():
-    assert len(CANONICAL_FILES) == 9
+    assert len(CANONICAL_FILES) == 8
     identities = []
     for path in _canonical_files():
         config = load_yaml_with_extends(path)

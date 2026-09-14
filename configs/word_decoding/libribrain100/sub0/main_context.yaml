@@ -5,7 +5,7 @@ experiment:
   dataset: libribrain100
   subject_scope: sub0
   id: main_context
-  category: main
+  category: historical_diagnostic
 
 provenance:
   context_condition: sentence_transformer

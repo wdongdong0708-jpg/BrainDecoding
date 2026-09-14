@@ -399,8 +399,11 @@ def test_actual_reading配置保持单一八人数据合同(monkeypatch):
         assert dataset["excluded_chapters"] == [14, 27]
         assert config["model"]["transformer"]["depth"] == 4
         assert config["model"]["transformer"]["heads"] == 8
-        assert config["training"]["max_updates"] == 3200
-        assert config["training"]["scheduler_total_updates"] == 6400
+        assert config["training"]["epochs"] == 30
+        assert config["training"]["patience"] == 10
+        assert "max_updates" not in config["training"]
+        assert "minimum_updates_before_early_stopping" not in config["training"]
+        assert "scheduler_total_updates" not in config["training"]
         assert all(
             Path(value).resolve().is_relative_to((project_root / "derived").resolve())
             for value in config["cache"].values()
@@ -417,7 +420,8 @@ def test_actual_reading配置保持单一八人数据合同(monkeypatch):
             "maximum_words": 32,
             "maximum_seconds": 15.0,
         }
-    assert context["training"]["freeze_brain_encoder_updates"] == 649
+    assert context["training"]["freeze_brain_encoder_epochs"] == 1
+    assert "freeze_brain_encoder_updates" not in context["training"]
     assert context["training"]["warm_start_from"] == "main_word"
     for section in ("text_embedding", "loss", "evaluation"):
         assert context[section] == word[section]

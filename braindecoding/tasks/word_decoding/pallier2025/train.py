@@ -30,7 +30,14 @@ from braindecoding.training.runtime import (
     save_json,
     set_seed,
 )
-from braindecoding.training.word import encode_loader, make_loader, move_batch
+from braindecoding.training.word import (
+    brain_encoder_frozen_for_epoch,
+    encode_loader,
+    make_loader,
+    move_batch,
+    train_one_epoch,
+    validation_patience_exhausted,
+)
 
 
 DEFAULT_CONFIG = (
@@ -85,6 +92,14 @@ def build_dataset(config, table, zero_meg=False):
         config["text_embedding"],
         zero_meg=zero_meg,
     )
+
+
+def set_brain_encoder_trainable(model, trainable):
+    """冻结时同步固定 brain encoder 的 BN 与 dropout 状态。"""
+    trainable = bool(trainable)
+    for parameter in model.brain_encoder.parameters():
+        parameter.requires_grad_(trainable)
+    model.brain_encoder.train(trainable)
 
 
 def loader_group_column(config) -> str:
@@ -290,6 +305,8 @@ def checkpoint_payload(
     optimizer_updates,
     optimizer=None,
     scheduler=None,
+    initialization_audit=None,
+    training_phase=None,
 ):
     """构造包含完整 Pallier 科学合同的 checkpoint payload。"""
     event_manifest = json.loads(
@@ -376,6 +393,10 @@ def checkpoint_payload(
         payload["optimizer_state"] = optimizer.state_dict()
     if scheduler is not None:
         payload["scheduler_state"] = scheduler.state_dict()
+    if initialization_audit is not None:
+        payload["initialization_audit"] = initialization_audit
+    if training_phase is not None:
+        payload["training_phase"] = training_phase
     return payload
 
 
@@ -388,20 +409,21 @@ def run_training(config, smoke=False, save=True, force_cache=False):
         raise ValueError("Pallier2025 context 只能从同 scope 的 main_word warm-start。")
     if warm_start and not bool(config["model"].get("use_transformer", False)):
         raise ValueError("Pallier2025 warm-start 只用于启用 Transformer 的 context 条件。")
-    if training_config.get("freeze_brain_encoder_updates") not in (None, 0, ""):
-        raise ValueError("Pallier2025 warm-start 不引入额外 brain encoder freeze 阶段。")
     if int(config["model"]["embedding_dimension"]) != int(
         config["text_embedding"]["embedding_dimension"]
     ):
         raise ValueError("Pallier2025 model 与 T5 target 维数不一致。")
     if smoke:
-        training_config["epochs"] = 1
-        training_config["patience"] = 1
+        training_config["epochs"] = 2 if warm_start else 1
+        training_config["patience"] = training_config["epochs"]
         training_config["batch_size"] = min(
             int(training_config["batch_size"]), 16
         )
-        training_config["max_updates"] = 1
-        training_config["minimum_updates_before_early_stopping"] = 1
+        if training_config.get("max_updates") is not None:
+            training_config["max_updates"] = 2 if warm_start else 1
+            training_config["minimum_updates_before_early_stopping"] = training_config["max_updates"]
+        elif warm_start:
+            training_config["freeze_brain_encoder_epochs"] = 1
 
     set_seed(int(training_config["seed"]))
     device = choose_device(training_config.get("device", "auto"))
@@ -457,13 +479,36 @@ def run_training(config, smoke=False, save=True, force_cache=False):
         )
     optimizer = build_adamw_for_modules([model, loss_module], training_config)
 
-    max_updates = int(training_config["max_updates"])
+    max_updates = training_config.get("max_updates")
+    if max_updates is not None:
+        max_updates = int(max_updates)
     minimum_updates = int(
         training_config.get("minimum_updates_before_early_stopping", 0)
     )
-    scheduler_horizon = int(training_config["scheduler_total_updates"])
-    if not 0 < minimum_updates <= max_updates <= scheduler_horizon:
+    scheduler_horizon = int(
+        training_config.get(
+            "scheduler_total_updates",
+            max_updates if max_updates is not None else training_config["epochs"],
+        )
+    )
+    if max_updates is not None and not 0 < minimum_updates <= max_updates <= scheduler_horizon:
         raise ValueError("Pallier2025 update budget / scheduler 合同无效。")
+    freeze_brain_encoder_updates = int(
+        training_config.get("freeze_brain_encoder_updates", 0)
+    )
+    freeze_brain_encoder_epochs = int(
+        training_config.get("freeze_brain_encoder_epochs", 0)
+    )
+    if warm_start and max_updates is None:
+        if freeze_brain_encoder_updates:
+            raise ValueError("epoch 生命周期不能同时使用 update 冻结字段。")
+        if not 0 < freeze_brain_encoder_epochs < int(training_config["epochs"]):
+            raise ValueError("Pallier warm-start 冻结轮数必须大于零且小于总轮数。")
+    elif warm_start and max_updates is not None:
+        if not 0 < freeze_brain_encoder_updates < max_updates:
+            raise ValueError("legacy warm-start 需要有效的 update 冻结阶段。")
+    elif freeze_brain_encoder_updates or freeze_brain_encoder_epochs:
+        raise ValueError("没有 warm-start 检查点时不能冻结 brain encoder。")
     scheduler = build_cosine_annealing_scheduler(
         optimizer,
         scheduler_horizon,
@@ -490,23 +535,48 @@ def run_training(config, smoke=False, save=True, force_cache=False):
     best_loss_state = None
     epochs_without_improvement = 0
     optimizer_updates = 0
+    frozen_encoder_updates = 0
+    joint_updates = 0
     stop_reason = "maximum_epochs_reached"
     history = []
     for epoch in range(int(training_config["epochs"])):
         train_sampler.set_epoch(epoch)
-        remaining_updates = max_updates - optimizer_updates
-        train_loss, epoch_updates, batches_seen = train_one_epoch_with_update_budget(
-            model,
-            loss_module,
-            train_loader,
-            optimizer,
-            scaler,
-            device,
-            training_config,
-            remaining_updates,
-            scheduler=scheduler,
+        encoder_is_frozen = warm_start and brain_encoder_frozen_for_epoch(
+            epoch, freeze_brain_encoder_epochs
         )
+        if max_updates is None:
+            set_brain_encoder_trainable(model, not encoder_is_frozen)
+            train_loss, epoch_updates, batches_seen = train_one_epoch(
+                model,
+                loss_module,
+                train_loader,
+                optimizer,
+                scaler,
+                device,
+                training_config,
+                freeze_brain_encoder=encoder_is_frozen,
+                return_stats=True,
+            )
+            epoch_frozen_updates = epoch_updates if encoder_is_frozen else 0
+            epoch_joint_updates = 0 if encoder_is_frozen else epoch_updates
+        else:
+            remaining_updates = max_updates - optimizer_updates
+            train_loss, epoch_updates, batches_seen = train_one_epoch_with_update_budget(
+                model,
+                loss_module,
+                train_loader,
+                optimizer,
+                scaler,
+                device,
+                training_config,
+                remaining_updates,
+                scheduler=scheduler,
+            )
+            epoch_frozen_updates = 0
+            epoch_joint_updates = epoch_updates
         optimizer_updates += epoch_updates
+        frozen_encoder_updates += epoch_frozen_updates
+        joint_updates += epoch_joint_updates
         validation_metrics, _ = evaluate_loader(
             model,
             val_loader,
@@ -514,6 +584,8 @@ def run_training(config, smoke=False, save=True, force_cache=False):
             top_ks=top_ks,
             amp=training_config.get("amp", True),
         )
+        if max_updates is None:
+            scheduler.step()
         score = float(validation_metrics[selection_metric])
         history.append(
             {
@@ -522,7 +594,12 @@ def run_training(config, smoke=False, save=True, force_cache=False):
                 "learning_rate": float(optimizer.param_groups[0]["lr"]),
                 "epoch_optimizer_updates": int(epoch_updates),
                 "optimizer_updates": int(optimizer_updates),
+                "cumulative_optimizer_updates": int(optimizer_updates),
                 "batches_seen": int(batches_seen),
+                "brain_encoder_frozen": bool(encoder_is_frozen),
+                "training_phase_at_epoch_end": (
+                    "transformer_only" if encoder_is_frozen else "joint"
+                ),
                 **validation_metrics,
             }
         )
@@ -548,6 +625,12 @@ def run_training(config, smoke=False, save=True, force_cache=False):
                         train_dataset.channel_names,
                         train_dataset.channel_positions,
                         optimizer_updates=optimizer_updates,
+                        initialization_audit=initialization_audit,
+                        training_phase={
+                            "freeze_brain_encoder_epochs": freeze_brain_encoder_epochs,
+                            "frozen_encoder_optimizer_updates": frozen_encoder_updates,
+                            "joint_optimizer_updates": joint_updates,
+                        },
                     ),
                 )
             else:
@@ -570,21 +653,26 @@ def run_training(config, smoke=False, save=True, force_cache=False):
                     optimizer_updates=optimizer_updates,
                     optimizer=optimizer,
                     scheduler=scheduler,
+                    initialization_audit=initialization_audit,
+                    training_phase={
+                        "freeze_brain_encoder_epochs": freeze_brain_encoder_epochs,
+                        "frozen_encoder_optimizer_updates": frozen_encoder_updates,
+                        "joint_optimizer_updates": joint_updates,
+                    },
                 ),
             )
-        if optimizer_updates >= max_updates:
+        if max_updates is not None and optimizer_updates >= max_updates:
             stop_reason = "update_budget_reached"
             break
-        if (
-            epochs_without_improvement >= int(training_config["patience"])
-            and optimizer_updates >= minimum_updates
+        if validation_patience_exhausted(
+            epochs_without_improvement, training_config["patience"]
         ):
             stop_reason = "early_stopping"
             break
 
     if best_epoch is None:
         raise RuntimeError("Pallier2025 训练未产生有效 validation metric。")
-    if optimizer_updates < minimum_updates:
+    if max_updates is not None and optimizer_updates < minimum_updates:
         raise RuntimeError(
             f"训练仅完成 {optimizer_updates} 次更新，低于要求的 {minimum_updates} 次。"
         )
@@ -603,7 +691,10 @@ def run_training(config, smoke=False, save=True, force_cache=False):
         "model_parameter_count": parameter_count(model),
         "loss_parameter_count": parameter_count(loss_module),
         "initialization_audit": initialization_audit,
-        "freeze_brain_encoder_updates": 0,
+        "freeze_brain_encoder_updates": freeze_brain_encoder_updates,
+        "freeze_brain_encoder_epochs": freeze_brain_encoder_epochs,
+        "frozen_encoder_optimizer_updates": int(frozen_encoder_updates),
+        "joint_optimizer_updates": int(joint_updates),
         "text_embedding_contract": config["text_embedding"],
         "selection_metric": selection_metric,
         "best_epoch": best_epoch,
@@ -615,6 +706,8 @@ def run_training(config, smoke=False, save=True, force_cache=False):
         "batch_size_limit": int(training_config["batch_size"]),
         "estimated_batches_per_epoch": len(train_loader),
         "stop_reason": stop_reason,
+        "epochs_without_improvement": int(epochs_without_improvement),
+        "final_learning_rate": float(optimizer.param_groups[0]["lr"]),
         "history": history,
         "test_status": "locked_not_evaluated",
     }
@@ -638,7 +731,7 @@ def print_training_summary(summary):
     )
     print(
         f"  optimizer updates: {summary['optimizer_updates']} / "
-        f"{summary['target_updates']}"
+        f"{summary['target_updates'] or 'epoch-scheduled'}"
     )
     print("  test: locked_not_evaluated")
 

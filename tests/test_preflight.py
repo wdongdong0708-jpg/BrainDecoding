@@ -61,9 +61,9 @@ def test_preflight_covers_all_active_configs_without_side_effects(
 ):
     output_root = tmp_path / "outputs"
     report = _clean_report(monkeypatch, output_root)
-    assert len(report["experiments"]) == 9
+    assert len(report["experiments"]) == 8
     identities = [tuple(item["identity"].values()) for item in report["experiments"]]
-    assert len(identities) == len(set(identities)) == 9
+    assert len(identities) == len(set(identities)) == 8
     assert report["identity_unique"] is True
     assert report["production_legacy_references"] == []
     assert not output_root.exists()
@@ -90,6 +90,7 @@ def test_context_dependencies_wait_for_same_scope_main_word(tmp_path, monkeypatc
         "chineseeeg2_littleprince": "main_context_warmstart",
         "smn4lang": "main_context_warmstart",
         "pallier2025": "main_context_warmstart",
+        "libribrain100": "main_context_warmstart",
     }
     for dataset, context_id in context_ids.items():
         context = by_key[(dataset, context_id)]
@@ -99,10 +100,7 @@ def test_context_dependencies_wait_for_same_scope_main_word(tmp_path, monkeypatc
         assert dependency["upstream_identity"]["subject_scope"] == context["identity"]["subject_scope"]
         assert dependency["upstream_identity"]["seed"] == context["identity"]["seed"]
         assert context["ready"] == "waiting_for_upstream"
-    assert by_key[("libribrain100", "main_context")]["dependency_status"]["status"] == "not_required"
-    assert by_key[("pallier2025", "main_context")]["dependency_status"]["status"] == "not_required"
     assert by_key[("pallier2025", "main_word")]["ready"] is True
-    assert by_key[("pallier2025", "main_context")]["ready"] is True
 
 
 def test_existing_upstream_checkpoint_makes_context_dependency_ready(
@@ -114,12 +112,6 @@ def test_existing_upstream_checkpoint_makes_context_dependency_ready(
     for relative_path in preflight.ACTIVE_CONFIGS:
         config = preflight._load_resolved_config(relative_path, output_root=output_root)
         if config["experiment"]["id"] != "main_word":
-            continue
-        if config["experiment"]["dataset"] not in {
-            "chineseeeg2_littleprince",
-            "smn4lang",
-            "pallier2025",
-        }:
             continue
         checkpoint = run_directory(config, output_root=output_root) / "best.pt"
         checkpoint.parent.mkdir(parents=True)

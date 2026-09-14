@@ -17,9 +17,9 @@ dataset:
 
 training:
   warm_start_from: main_word
-  freeze_brain_encoder_updates: 649
+  freeze_brain_encoder_epochs: 1
 
 provenance:
   context_condition: bounded_semantic_v1
-  staged_training: freeze_cnn_649_updates_then_joint_to_3200
+  staged_training: freeze_brain_encoder_epoch_1_then_joint_training
   comparison: eight_subject_row_context_vs_bounded_semantic_context

@@ -197,8 +197,11 @@ def test_active_context_warm_start_points_to_active_word(monkeypatch):
         / "configs/word_decoding/smn4lang/sub01-06/main_context_warmstart.yaml"
     )
     assert staged["training"]["warm_start_from"] == "main_word"
-    assert staged["training"]["max_updates"] == 6400
-    assert staged["training"]["freeze_brain_encoder_updates"] == 960
+    assert staged["training"]["epochs"] == 30
+    assert staged["training"]["patience"] == 10
+    assert staged["training"]["freeze_brain_encoder_epochs"] == 1
+    assert "max_updates" not in staged["training"]
+    assert "freeze_brain_encoder_updates" not in staged["training"]
 
 
 def test_pretrained_checkpoint_loads_only_brain_encoder(tmp_path):

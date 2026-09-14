@@ -34,9 +34,8 @@ def configured_roots(monkeypatch):
         ("smn4lang/sub01-06/main_word", "word"),
         ("smn4lang/sub01-06/main_context_warmstart", "neural_context"),
         ("libribrain100/sub0/main_word", "word"),
-        ("libribrain100/sub0/main_context", "neural_context"),
+        ("libribrain100/sub0/main_context_warmstart", "neural_context"),
         ("pallier2025/sub01-10/main_word", "word"),
-        ("pallier2025/sub01-10/main_context", "neural_context"),
         ("pallier2025/sub01-10/main_context_warmstart", "neural_context"),
     ),
 )
@@ -53,16 +52,11 @@ def test_unsupported_transformer_mode_is_rejected():
         )
 
 
-def test_pallier_scratch_and_warmstart_bind_distinct_exact_checkpoints():
-    scratch = "pallier2025/sub01-10/main_context"
-    warm = "pallier2025/sub01-10/main_context_warmstart"
-    _, scratch_config, _ = runner._load_exact_config(scratch)
-    _, warm_config, _ = runner._load_exact_config(warm)
-    scratch_path = Path(scratch_config["training"]["output_dir"]) / "best.pt"
-    warm_path = Path(warm_config["training"]["output_dir"]) / "best.pt"
-    assert scratch_path != warm_path
-    assert "main_context/seed-000/best.pt" in scratch_path.as_posix()
-    assert "main_context_warmstart/seed-000/best.pt" in warm_path.as_posix()
+def test_active_pallier_audit_binds_exact_warmstart_checkpoint():
+    selector = "pallier2025/sub01-10/main_context_warmstart"
+    _, config, _ = runner._load_exact_config(selector)
+    checkpoint = Path(config["training"]["output_dir"]) / "best.pt"
+    assert "main_context_warmstart/seed-000/best.pt" in checkpoint.as_posix()
 
 
 def test_libribrain_runs_only_existing_frozen_n50_vocabulary():

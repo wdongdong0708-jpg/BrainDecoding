@@ -136,6 +136,22 @@ def resolve_experiment_config(config, output_root=None):
             resolved.setdefault("dataset", {})[
                 "signal_cache_subject_subdirectories"
             ] = True
+    # resolved config 应保存实际使用的项目资源路径。此前 ChineseEEG2/Pallier
+    # task loader 会额外展开这些字段，而 preflight 只经过本函数，造成同一配置
+    # 在运行与预检阶段得到不同 resolved SHA。
+    dataset = resolved.setdefault("dataset", {})
+    for key in ("alignment_path", "split_manifest", "qc_artifact", "layout_path"):
+        value = dataset.get(key)
+        if value:
+            path = Path(value)
+            dataset[key] = str(path if path.is_absolute() else PROJECT_ROOT / path)
+    for source in dataset.get("actual_reading_sources", ()):
+        value = source.get("alignment_path")
+        if value:
+            path = Path(value)
+            source["alignment_path"] = str(
+                path if path.is_absolute() else PROJECT_ROOT / path
+            )
     if "closed_set_diagnostic" in resolved:
         resolved["closed_set_diagnostic"]["output_dir"] = output_dir
     checkpoint = warm_start_checkpoint(resolved, output_root=output_root)
