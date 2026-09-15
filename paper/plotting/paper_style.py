@@ -9,6 +9,19 @@ from pathlib import Path
 from typing import Iterable
 
 
+MODEL_LABELS = {"word": "Word", "context": "Context"}
+MODEL_STYLES = {
+    "word": {"color": "#3B6EA8", "marker": "o", "linestyle": "-", "hatch": ""},
+    "context": {
+        "color": "#D97706",
+        "marker": "s",
+        "linestyle": "--",
+        "hatch": "//",
+    },
+}
+CHANCE_COLOR = "#7A7A7A"
+
+
 def configure_matplotlib() -> None:
     """配置稳定、低噪声的通用论文绘图样式。"""
     import matplotlib as mpl

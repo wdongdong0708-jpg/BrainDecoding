@@ -1,13 +1,15 @@
-"""Figure 3：可用条件下的词汇信息量。"""
+"""Figure 2：三个正式数据集上的词汇解码性能。"""
 
 from __future__ import annotations
 
 import argparse
 import csv
+import math
 from pathlib import Path
 
 try:
     from .paper_style import (
+        CHANCE_COLOR,
         MODEL_LABELS,
         MODEL_STYLES,
         configure_matplotlib,
@@ -16,6 +18,7 @@ try:
     )
 except ImportError:  # 直接运行本文件时使用。
     from paper_style import (
+        CHANCE_COLOR,
         MODEL_LABELS,
         MODEL_STYLES,
         configure_matplotlib,
@@ -25,87 +28,89 @@ except ImportError:  # 直接运行本文件时使用。
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DATA_PATH = PROJECT_ROOT / "reports" / "exports" / "fig3_information.csv"
-OUTPUT_STEM = PROJECT_ROOT / "paper" / "figures" / "fig3_information"
+DATA_PATH = PROJECT_ROOT / "reports" / "exports" / "fig2_decoding_performance.csv"
+OUTPUT_STEM = PROJECT_ROOT / "paper" / "figures" / "fig2_decoding_performance"
 DATASET_ORDER = ("ChineseEEG2", "SMN4Lang", "Pallier2025")
 MODEL_ORDER = ("word", "context")
-VOCABULARY_SIZES = (20,)
+VOCABULARY_SIZES = (20)
+
+
+def _optional_float(value: str) -> float | None:
+    return None if value == "" else float(value)
 
 
 def load_data(path: str | Path = DATA_PATH, split: str = "val") -> list[dict]:
-    """保留 CSV 中的 unavailable 状态，但只返回指定 split。"""
+    """读取一个明确 split；不存在时拒绝自动回退。"""
     with Path(path).open("r", encoding="utf-8", newline="") as stream:
         rows = list(csv.DictReader(stream))
     selected = []
     for row in rows:
-        if (
-            row["split"] != split
-            or int(row["vocabulary_size"]) not in VOCABULARY_SIZES
-        ):
+        if row["split"] != split:
             continue
         selected.append(
             {
                 **row,
                 "vocabulary_size": int(row["vocabulary_size"]),
                 "available": row["available"].lower() == "true",
-                "ovmi_bits": None if row["ovmi_bits"] == "" else float(row["ovmi_bits"]),
+                "macro_top10": _optional_float(row["macro_top10"]),
             }
         )
     if not selected:
         raise ValueError(f"导出数据中不存在 split={split!r}，不会自动回退。")
-    if not any(row["available"] for row in selected):
-        raise ValueError(f"split={split!r} 没有 available OVMI 数据。")
     return selected
-
-
-def _reference_label(reference: str) -> str:
-    return reference.replace("_", " ").title()
 
 
 def make_figure(
     data: list[dict], output_stem: str | Path = OUTPUT_STEM
 ) -> tuple[Path, ...]:
-    """用不连接的 grouped points 呈现稀疏 OVMI 条件。"""
+    """生成三横向 panel、共享纵轴的 Macro Top-10 曲线图。"""
     import matplotlib.pyplot as plt
 
     configure_matplotlib()
     figure, axes = plt.subplots(
         1,
         len(DATASET_ORDER),
-        figsize=figure_size("double", 0.38),
+        figsize=figure_size("double", 0.36),
         sharey=True,
         constrained_layout=True,
     )
+    chance = [100.0 * 10.0 / size for size in VOCABULARY_SIZES]
     for panel_index, (axis, dataset) in enumerate(zip(axes, DATASET_ORDER)):
-        available = [
-            row for row in data if row["dataset"] == dataset and row["available"]
-        ]
-        conditions = sorted(
-            {(row["vocabulary_size"], row["reference"]) for row in available}
-        )
-        positions = {condition: index for index, condition in enumerate(conditions)}
-        for model_index, model in enumerate(MODEL_ORDER):
+        dataset_rows = [row for row in data if row["dataset"] == dataset]
+        for model in MODEL_ORDER:
+            by_size = {
+                row["vocabulary_size"]: row["macro_top10"]
+                for row in dataset_rows
+                if row["model"] == model and row["available"]
+            }
+            values = [
+                100.0 * by_size[size] if size in by_size else math.nan
+                for size in VOCABULARY_SIZES
+            ]
             style = MODEL_STYLES[model]
-            offset = -0.13 if model_index == 0 else 0.13
-            model_rows = [row for row in available if row["model"] == model]
-            axis.scatter(
-                [positions[(row["vocabulary_size"], row["reference"])] + offset for row in model_rows],
-                [row["ovmi_bits"] for row in model_rows],
+            axis.plot(
+                VOCABULARY_SIZES,
+                values,
                 color=style["color"],
                 marker=style["marker"],
-                s=28,
-                linewidths=0.8,
+                linestyle=style["linestyle"],
+                linewidth=1.5,
+                markersize=4.2,
                 label=MODEL_LABELS[model],
-                zorder=3,
             )
-        axis.set_title(dataset, pad=5)
-        axis.set_xticks(range(len(conditions)))
-        axis.set_xticklabels(
-            [
-                f"N{size}\n{_reference_label(reference)}"
-                for size, reference in conditions
-            ]
+        axis.plot(
+            VOCABULARY_SIZES,
+            chance,
+            color=CHANCE_COLOR,
+            linestyle=":",
+            linewidth=0.9,
+            alpha=0.75,
+            label="Chance (10/N)",
         )
+        axis.set_title(dataset, pad=5)
+        axis.set_xlabel("Vocabulary size")
+        axis.set_xticks(VOCABULARY_SIZES)
+        axis.set_ylim(0, 100)
         axis.tick_params(direction="out", length=3)
         axis.text(
             -0.14,
@@ -116,9 +121,9 @@ def make_figure(
             fontweight="bold",
             va="bottom",
         )
-    axes[0].set_ylabel("OVMI (bits/word)")
+    axes[0].set_ylabel("Macro Top-10 (%)")
     handles, labels = axes[0].get_legend_handles_labels()
-    figure.legend(handles, labels, loc="upper center", ncol=2, bbox_to_anchor=(0.5, 1.04))
+    figure.legend(handles, labels, loc="upper center", ncol=3, bbox_to_anchor=(0.5, 1.04))
     saved = save_figure(figure, output_stem)
     plt.close(figure)
     return saved

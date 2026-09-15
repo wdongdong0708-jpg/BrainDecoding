@@ -42,3 +42,4 @@ paper/manuscript/*.fdb_latexmk
 paper/manuscript/*.synctex.gz
 paper/manuscript/main.pdf
 paper/manuscript/build/
+archive/

@@ -301,7 +301,7 @@ def _report(selector: str, write: bool) -> int:
     markdown = render_run_report(config)
     print(markdown)
     if write:
-        print(f"written: {write_run_report(config)}")
+        print(f"已写入：{write_run_report(config)}")
     return 0
 
 

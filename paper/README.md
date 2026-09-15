@@ -26,3 +26,20 @@ latexmk -pdf main.tex
 ```
 
 本仓库不会安装 LaTeX，也暂不绑定任何期刊模板。
+
+## Regenerate paper figures
+
+```bash
+python -m braindecoding.paper_exports
+python paper/plotting/make_all.py --split val
+```
+
+未来切换到正式 test 数据：
+
+```bash
+python -m braindecoding.paper_exports
+python paper/plotting/make_all.py --split test
+```
+
+Paper plotting scripts never read raw experiment JSON directly; they only read
+the CSV files in `reports/exports/`.

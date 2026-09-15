@@ -1,0 +1,601 @@
+{
+  "audit": "story_specific_lexical_audit",
+  "background": {
+    "language": "fr",
+    "missing_metadata": [
+      "source_label",
+      "version",
+      "license",
+      "language",
+      "tokenization"
+    ],
+    "path": null,
+    "reader": "braindecoding.evaluation.ovmi.load_reference_distribution",
+    "sha256": null,
+    "source_label": null,
+    "status": "not_provided",
+    "total_count": null,
+    "type_count": null
+  },
+  "candidate_ranking_source": "train_story_counts_plus_background_only",
+  "canonical_assets_read_only": {
+    "vocabulary_N100": {
+      "path": "experiments/manifests/pallier2025/vocabulary_N100.json",
+      "sha256": "6707be5e44c9a0f5a0dddb49d547891bf4145a787d0507d7a1373f79f9918727"
+    },
+    "vocabulary_N150": {
+      "path": "experiments/manifests/pallier2025/vocabulary_N150.json",
+      "sha256": "c833676e7e1ddc998ab2da3ce8de7d9b2b72730e9d8d9380f1d1f096d246a782"
+    },
+    "vocabulary_N20": {
+      "path": "experiments/manifests/pallier2025/vocabulary_N20.json",
+      "sha256": "482337eec6dd9f074f1e27e9a02fd87472ad5da524d798fff9dd1147e405e9fa"
+    },
+    "vocabulary_N50": {
+      "path": "experiments/manifests/pallier2025/vocabulary_N50.json",
+      "sha256": "7b9423d41dfda5d00e1d323ff320c0b832c19dfa7f59466014ce81989cbaa195"
+    }
+  },
+  "canonical_vocabulary_modified": false,
+  "checkpoint_opened": false,
+  "counting": {
+    "deduplication_key": [
+      "运行编号",
+      "BIDS事件行号"
+    ],
+    "frequency_unit": "material_word_occurrence",
+    "full_story_token_count": 15256,
+    "full_story_type_count": 2426,
+    "full_story_units": [
+      "run-01",
+      "run-02",
+      "run-03",
+      "run-04",
+      "run-05",
+      "run-06",
+      "run-07",
+      "run-08",
+      "run-09"
+    ],
+    "material_source": {
+      "run_03_source_excludes": "sub-09/run-03",
+      "source_subject_by_run": {
+        "run-01": "sub-01",
+        "run-02": "sub-01",
+        "run-03": "sub-01",
+        "run-04": "sub-01",
+        "run-05": "sub-01",
+        "run-06": "sub-01",
+        "run-07": "sub-01",
+        "run-08": "sub-01",
+        "run-09": "sub-01"
+      },
+      "subject_repetitions_counted": false
+    },
+    "normalization": "strip_lower_preserve_french_accents_and_tokenization",
+    "train_split_units": [
+      "pallier2025|run-01",
+      "pallier2025|run-02",
+      "pallier2025|run-03",
+      "pallier2025|run-04",
+      "pallier2025|run-05",
+      "pallier2025|run-08",
+      "pallier2025|run-09"
+    ],
+    "train_token_count": 11715,
+    "train_type_count": 2020
+  },
+  "dataset": "Pallier2025 Little Prince",
+  "dataset_key": "pallier2025",
+  "derived_signals_or_text_modified": false,
+  "event_table": {
+    "path": "derived/pallier2025/events/events.csv",
+    "sha256": "3cd1237fd138f3d827f8297cb7081243ce635ebb896f05241da8ccc5614a43fc"
+  },
+  "event_table_modified": false,
+  "exploratory_only": true,
+  "formula": {
+    "p_background": "(background_count + alpha) / (total_background + alpha * |U|)",
+    "p_story": "story_count / total_story_tokens",
+    "positive_score_is_not_named_kl_contribution": true,
+    "positive_story_specific_score": "p_story * max(raw_log_lift, 0)",
+    "raw_log_lift": "log2(p_story / p_background)",
+    "signed_kl_contribution": "p_story * raw_log_lift",
+    "universe": "union(background vocabulary, story vocabulary)"
+  },
+  "formula_status": "candidate_v0_not_frozen",
+  "full_story_role": "reference_distribution_diagnostic_only",
+  "language": "fr",
+  "lexical_surface_diagnostics": {
+    "automatic_deletion_performed": false,
+    "background_missing_not_assessable_without_background": true,
+    "flag_totals": {
+      "contains_digit": {
+        "token_count": 18,
+        "type_count": 12
+      },
+      "leading_hyphen": {
+        "token_count": 249,
+        "type_count": 37
+      },
+      "number_like": {
+        "token_count": 18,
+        "type_count": 12
+      },
+      "punctuation_only": {
+        "token_count": 0,
+        "type_count": 0
+      },
+      "single_character_or_token": {
+        "token_count": 1258,
+        "type_count": 16
+      },
+      "very_low_train_count": {
+        "token_count": 1850,
+        "type_count": 1546
+      }
+    },
+    "potentially_suspicious_surface_tokens": [
+      {
+        "flags": "leading_hyphen",
+        "full_story_count": 52,
+        "train_count": 35,
+        "word": "-il"
+      },
+      {
+        "flags": "leading_hyphen",
+        "full_story_count": 22,
+        "train_count": 17,
+        "word": "-tu"
+      },
+      {
+        "flags": "leading_hyphen",
+        "full_story_count": 21,
+        "train_count": 12,
+        "word": "-ce"
+      },
+      {
+        "flags": "leading_hyphen",
+        "full_story_count": 20,
+        "train_count": 19,
+        "word": "-là"
+      },
+      {
+        "flags": "leading_hyphen",
+        "full_story_count": 18,
+        "train_count": 14,
+        "word": "-t"
+      },
+      {
+        "flags": "leading_hyphen",
+        "full_story_count": 16,
+        "train_count": 16,
+        "word": "-même"
+      },
+      {
+        "flags": "leading_hyphen",
+        "full_story_count": 14,
+        "train_count": 12,
+        "word": "-moi"
+      },
+      {
+        "flags": "leading_hyphen",
+        "full_story_count": 12,
+        "train_count": 11,
+        "word": "-je"
+      },
+      {
+        "flags": "leading_hyphen",
+        "full_story_count": 11,
+        "train_count": 4,
+        "word": "-vous"
+      },
+      {
+        "flags": "leading_hyphen",
+        "full_story_count": 10,
+        "train_count": 9,
+        "word": "-être"
+      },
+      {
+        "flags": "leading_hyphen",
+        "full_story_count": 7,
+        "train_count": 5,
+        "word": "-ci"
+      },
+      {
+        "flags": "leading_hyphen",
+        "full_story_count": 5,
+        "train_count": 5,
+        "word": "-deux"
+      },
+      {
+        "flags": "leading_hyphen",
+        "full_story_count": 5,
+        "train_count": 5,
+        "word": "-quatre"
+      },
+      {
+        "flags": "number_like;contains_digit",
+        "full_story_count": 4,
+        "train_count": 4,
+        "word": "612"
+      },
+      {
+        "flags": "leading_hyphen",
+        "full_story_count": 3,
+        "train_count": 2,
+        "word": "-dessus"
+      },
+      {
+        "flags": "leading_hyphen",
+        "full_story_count": 3,
+        "train_count": 3,
+        "word": "-elle"
+      },
+      {
+        "flags": "leading_hyphen",
+        "full_story_count": 3,
+        "train_count": 3,
+        "word": "-elles"
+      },
+      {
+        "flags": "leading_hyphen",
+        "full_story_count": 3,
+        "train_count": 3,
+        "word": "-trois"
+      },
+      {
+        "flags": "number_like;contains_digit;single_character_or_token",
+        "full_story_count": 3,
+        "train_count": 3,
+        "word": "1"
+      },
+      {
+        "flags": "leading_hyphen;very_low_train_count",
+        "full_story_count": 2,
+        "train_count": 1,
+        "word": "-bas"
+      },
+      {
+        "flags": "leading_hyphen;very_low_train_count",
+        "full_story_count": 2,
+        "train_count": 1,
+        "word": "-dire"
+      },
+      {
+        "flags": "leading_hyphen",
+        "full_story_count": 2,
+        "train_count": 2,
+        "word": "-on"
+      },
+      {
+        "flags": "leading_hyphen;very_low_train_count",
+        "full_story_count": 2,
+        "train_count": 1,
+        "word": "-à"
+      },
+      {
+        "flags": "number_like;contains_digit;single_character_or_token",
+        "full_story_count": 2,
+        "train_count": 2,
+        "word": "2"
+      },
+      {
+        "flags": "leading_hyphen;very_low_train_count",
+        "full_story_count": 1,
+        "train_count": 1,
+        "word": "-chose"
+      },
+      {
+        "flags": "leading_hyphen;very_low_train_count",
+        "full_story_count": 1,
+        "train_count": 1,
+        "word": "-confidence"
+      },
+      {
+        "flags": "leading_hyphen;very_low_train_count",
+        "full_story_count": 1,
+        "train_count": 1,
+        "word": "-d"
+      },
+      {
+        "flags": "leading_hyphen;very_low_train_count",
+        "full_story_count": 1,
+        "train_count": 0,
+        "word": "-dedans"
+      },
+      {
+        "flags": "leading_hyphen;very_low_train_count",
+        "full_story_count": 1,
+        "train_count": 1,
+        "word": "-douze"
+      },
+      {
+        "flags": "leading_hyphen;very_low_train_count",
+        "full_story_count": 1,
+        "train_count": 1,
+        "word": "-en"
+      },
+      {
+        "flags": "leading_hyphen;very_low_train_count",
+        "full_story_count": 1,
+        "train_count": 1,
+        "word": "-haut"
+      },
+      {
+        "flags": "leading_hyphen;very_low_train_count",
+        "full_story_count": 1,
+        "train_count": 1,
+        "word": "-huit"
+      },
+      {
+        "flags": "leading_hyphen;very_low_train_count",
+        "full_story_count": 1,
+        "train_count": 0,
+        "word": "-ils"
+      },
+      {
+        "flags": "leading_hyphen;very_low_train_count",
+        "full_story_count": 1,
+        "train_count": 0,
+        "word": "-midi"
+      },
+      {
+        "flags": "leading_hyphen;very_low_train_count",
+        "full_story_count": 1,
+        "train_count": 1,
+        "word": "-nez"
+      },
+      {
+        "flags": "leading_hyphen;very_low_train_count",
+        "full_story_count": 1,
+        "train_count": 1,
+        "word": "-six"
+      },
+      {
+        "flags": "leading_hyphen;very_low_train_count",
+        "full_story_count": 1,
+        "train_count": 1,
+        "word": "-sourire"
+      },
+      {
+        "flags": "leading_hyphen;very_low_train_count",
+        "full_story_count": 1,
+        "train_count": 1,
+        "word": "-toi"
+      },
+      {
+        "flags": "leading_hyphen;very_low_train_count",
+        "full_story_count": 1,
+        "train_count": 1,
+        "word": "-unis"
+      },
+      {
+        "flags": "leading_hyphen;very_low_train_count",
+        "full_story_count": 1,
+        "train_count": 0,
+        "word": "-zélande"
+      },
+      {
+        "flags": "number_like;contains_digit;very_low_train_count",
+        "full_story_count": 1,
+        "train_count": 1,
+        "word": "1909"
+      },
+      {
+        "flags": "number_like;contains_digit;very_low_train_count",
+        "full_story_count": 1,
+        "train_count": 1,
+        "word": "1920"
+      },
+      {
+        "flags": "number_like;contains_digit;very_low_train_count",
+        "full_story_count": 1,
+        "train_count": 1,
+        "word": "325"
+      },
+      {
+        "flags": "number_like;contains_digit;very_low_train_count",
+        "full_story_count": 1,
+        "train_count": 1,
+        "word": "3251"
+      },
+      {
+        "flags": "number_like;contains_digit;very_low_train_count",
+        "full_story_count": 1,
+        "train_count": 1,
+        "word": "326"
+      },
+      {
+        "flags": "number_like;contains_digit;very_low_train_count",
+        "full_story_count": 1,
+        "train_count": 1,
+        "word": "327"
+      },
+      {
+        "flags": "number_like;contains_digit;very_low_train_count",
+        "full_story_count": 1,
+        "train_count": 1,
+        "word": "328"
+      },
+      {
+        "flags": "number_like;contains_digit;very_low_train_count",
+        "full_story_count": 1,
+        "train_count": 1,
+        "word": "329"
+      },
+      {
+        "flags": "number_like;contains_digit;very_low_train_count",
+        "full_story_count": 1,
+        "train_count": 1,
+        "word": "330"
+      }
+    ],
+    "single_character_examples_by_frequency": [
+      "à",
+      "l",
+      "d",
+      "j",
+      "c",
+      "n",
+      "s",
+      "a",
+      "m",
+      "y",
+      "t",
+      "b",
+      "1",
+      "2",
+      "ç",
+      "â"
+    ]
+  },
+  "model_training_performed": false,
+  "reason": "background_reference_not_provided",
+  "smoothing_policies": [
+    {
+      "alpha": 0.5
+    },
+    {
+      "alpha": 1.0
+    }
+  ],
+  "split_modified": false,
+  "standard_frequency_top50": [
+    "de",
+    "le",
+    "il",
+    "je",
+    "un",
+    "et",
+    "est",
+    "la",
+    "les",
+    "à",
+    "pas",
+    "petit",
+    "j",
+    "ne",
+    "que",
+    "l",
+    "d",
+    "c",
+    "n",
+    "une",
+    "prince",
+    "mais",
+    "tu",
+    "en",
+    "me",
+    "des",
+    "ce",
+    "qui",
+    "ai",
+    "bien",
+    "pour",
+    "dit",
+    "qu",
+    "s",
+    "ça",
+    "comme",
+    "était",
+    "a",
+    "mon",
+    "se",
+    "si",
+    "lui",
+    "du",
+    "dans",
+    "moi",
+    "plus",
+    "sur",
+    "tout",
+    "on",
+    "planète"
+  ],
+  "status": "blocked",
+  "story_reference": {
+    "path": "experiments/manifests/pallier2025/story_reference.json",
+    "sha256": "1eab746597c12f0c76a85b9e4563b5796d3867bb4f35158e7c60decdc3c60b48",
+    "verified_equal_to_full_story_counts": true
+  },
+  "story_reference_modified": false,
+  "test_metrics_inspected": false,
+  "test_model_evaluation": "not_run",
+  "test_neural_data_opened": false,
+  "test_predictions_generated": false,
+  "threshold_eligibility_train_only": {
+    "1": {
+      "constructible": {
+        "top100": true,
+        "top150": true,
+        "top20": true,
+        "top50": true
+      },
+      "eligible_type_count": 2020,
+      "reason_ranking_unavailable": "background_reference_not_provided",
+      "selection_count_field": "train_count",
+      "top50_overlap": null,
+      "top50_words": null
+    },
+    "10": {
+      "constructible": {
+        "top100": true,
+        "top150": true,
+        "top20": true,
+        "top50": true
+      },
+      "eligible_type_count": 179,
+      "reason_ranking_unavailable": "background_reference_not_provided",
+      "selection_count_field": "train_count",
+      "top50_overlap": null,
+      "top50_words": null
+    },
+    "2": {
+      "constructible": {
+        "top100": true,
+        "top150": true,
+        "top20": true,
+        "top50": true
+      },
+      "eligible_type_count": 880,
+      "reason_ranking_unavailable": "background_reference_not_provided",
+      "selection_count_field": "train_count",
+      "top50_overlap": null,
+      "top50_words": null
+    },
+    "20": {
+      "constructible": {
+        "top100": false,
+        "top150": false,
+        "top20": true,
+        "top50": true
+      },
+      "eligible_type_count": 92,
+      "reason_ranking_unavailable": "background_reference_not_provided",
+      "selection_count_field": "train_count",
+      "top50_overlap": null,
+      "top50_words": null
+    },
+    "5": {
+      "constructible": {
+        "top100": true,
+        "top150": true,
+        "top20": true,
+        "top50": true
+      },
+      "eligible_type_count": 340,
+      "reason_ranking_unavailable": "background_reference_not_provided",
+      "selection_count_field": "train_count",
+      "top50_overlap": null,
+      "top50_words": null
+    }
+  },
+  "thresholds": [
+    1,
+    2,
+    5,
+    10,
+    20
+  ]
+}
