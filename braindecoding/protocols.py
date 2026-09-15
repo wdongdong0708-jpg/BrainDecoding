@@ -224,13 +224,7 @@ def build_vocabulary_manifest(
     return with_manifest_sha256(manifest)
 
 
-def build_story_reference(canonical_story_words: pd.DataFrame) -> dict[str, int]:
-    """统计调用方明确提供的完整材料标准词，不读取候选词表。"""
-    _, counts = ranked_word_counts(canonical_story_words["_protocol_word"])
-    return counts
-
-
-def build_ovmi_support_manifest(
+def build_vocabulary_support_manifest(
     *,
     dataset: str,
     table: pd.DataFrame,
@@ -239,7 +233,7 @@ def build_ovmi_support_manifest(
     status: str,
     test_status: str,
 ) -> dict:
-    """独立记录评价支持；结果不得用于改变冻结候选词。"""
+    """独立记录评价词类支持；结果不得用于改变冻结候选词。"""
     trainable = table[_bool_series(table["is_trainable"])].copy()
     support = {}
     for size, vocabulary_manifest in vocabularies.items():
@@ -255,12 +249,11 @@ def build_ovmi_support_manifest(
             observed.discard("")
             missing = [word for word in vocabulary if word not in observed]
             split_support[split] = {
-                "full_ovmi_status": (
-                    "available" if not missing else "unavailable_missing_true_samples"
-                ),
-                "missing_word_count": len(missing),
+                "candidate_count": len(vocabulary),
+                "missing_candidate_count": len(missing),
                 "missing_words": missing,
-                "supported_word_count": len(vocabulary) - len(missing),
+                "support_fraction": (len(vocabulary) - len(missing)) / len(vocabulary),
+                "supported_candidate_count": len(vocabulary) - len(missing),
             }
         support[f"N{size}"] = {
             "candidate_manifest_sha256": vocabulary_manifest["manifest_sha256"],
@@ -268,15 +261,8 @@ def build_ovmi_support_manifest(
         }
     return with_manifest_sha256(
         {
-            "asset_type": "ovmi_evaluation_support",
+            "asset_type": "evaluation_vocabulary_support",
             "dataset": dataset,
-            "full_ovmi_rule": {
-                "missing_true_sample_action": "unavailable",
-                "remove_missing_words": False,
-                "report_coverage_and_retrieval": True,
-                "silent_metric_substitution": False,
-                "smooth_zero_rows": False,
-            },
             "generator": "braindecoding.protocols",
             "generator_sha256": generator_sha256,
             "status": status,
@@ -356,43 +342,6 @@ def _prepare_smn(table: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
-def _story_assets(
-    *,
-    dataset: str,
-    canonical_story: pd.DataFrame,
-    source_units,
-    deduplication_key,
-    event_table_path: Path,
-    event_table_sha256: str,
-    generator_sha256: str,
-    status: str,
-) -> tuple[dict, dict]:
-    reference = build_story_reference(canonical_story)
-    reference_digest = hashlib.sha256(json_bytes(reference)).hexdigest()
-    provenance = with_manifest_sha256(
-        {
-            "asset_type": "story_reference_provenance",
-            "dataset": dataset,
-            "deduplication_key": list(deduplication_key),
-            "domain_reference": {"status": "not_frozen"},
-            "event_or_text_source": _project_relative(event_table_path),
-            "event_table_sha256": event_table_sha256,
-            "generator": "braindecoding.protocols",
-            "generator_sha256": generator_sha256,
-            "includes_all_target_splits": True,
-            "includes_neurally_ineligible_story_words": True,
-            "normalization": "event_table.normalized_word",
-            "reference_sha256": reference_digest,
-            "source_units": list(source_units),
-            "status": status,
-            "subject_repetitions_counted": False,
-            "token_count": int(sum(reference.values())),
-            "type_count": int(len(reference)),
-        }
-    )
-    return reference, provenance
-
-
 def _chinese_documents(
     event_table_path: Path, generator_sha256: str
 ) -> dict[str, dict]:
@@ -433,28 +382,6 @@ def _chinese_documents(
         )
         for size in PRIMARY_VOCABULARY_SIZES
     }
-    canonical_story = canonical_words(
-        table,
-        deduplicate_by=("voice_version", "source_word_id"),
-        order_by=(
-            "voice_version",
-            "chapter",
-            "chapter_word_index",
-            "subject_id",
-        ),
-    )
-    story_units = sorted(canonical_story["_material_unit"].drop_duplicates())
-    reference, provenance = _story_assets(
-        dataset="ChineseEEG2",
-        canonical_story=canonical_story,
-        source_units=story_units,
-        deduplication_key=("voice_version", "source_word_id"),
-        event_table_path=event_table_path,
-        event_table_sha256=event_digest,
-        generator_sha256=generator_sha256,
-        status="frozen",
-    )
-
     unit_counts = table.groupby("_split_unit").agg(
         row_count=("_split_unit", "size"),
         trainable_event_count=("is_trainable", lambda values: int(_bool_series(values).sum())),
@@ -491,7 +418,7 @@ def _chinese_documents(
             "trainable_split_units": _split_unit_lists(table, trainable_only=True),
         }
     )
-    support = build_ovmi_support_manifest(
+    support = build_vocabulary_support_manifest(
         dataset="ChineseEEG2",
         table=table,
         vocabularies=vocabularies,
@@ -501,9 +428,7 @@ def _chinese_documents(
     )
     documents = {
         "chineseeeg2/split_manifest.json": split_manifest,
-        "chineseeeg2/story_reference.json": reference,
-        "chineseeeg2/story_reference.provenance.json": provenance,
-        "chineseeeg2/ovmi_support.json": support,
+        "chineseeeg2/vocabulary_support.json": support,
     }
     for size, manifest in vocabularies.items():
         documents[f"chineseeeg2/vocabulary_N{size}.json"] = manifest
@@ -550,22 +475,6 @@ def _smn_documents(event_table_path: Path, generator_sha256: str) -> dict[str, d
         )
         for size in PRIMARY_VOCABULARY_SIZES
     }
-    canonical_story = canonical_words(
-        table,
-        deduplicate_by=("run", "word_index"),
-        order_by=("run", "word_index", "subject_id"),
-    )
-    story_units = sorted(canonical_story["_split_unit"].drop_duplicates())
-    reference, provenance = _story_assets(
-        dataset="SMN4Lang",
-        canonical_story=canonical_story,
-        source_units=story_units,
-        deduplication_key=("run", "word_index"),
-        event_table_path=event_table_path,
-        event_table_sha256=event_digest,
-        generator_sha256=generator_sha256,
-        status="frozen_from_dataset_annotations",
-    )
     development_manifest = with_manifest_sha256(
         {
             "asset_type": "split_and_subject_manifest",
@@ -596,7 +505,7 @@ def _smn_documents(event_table_path: Path, generator_sha256: str) -> dict[str, d
             "trainable_split_units": _split_unit_lists(table, trainable_only=True),
         }
     )
-    support = build_ovmi_support_manifest(
+    support = build_vocabulary_support_manifest(
         dataset="SMN4Lang",
         table=table,
         vocabularies=vocabularies,
@@ -608,9 +517,7 @@ def _smn_documents(event_table_path: Path, generator_sha256: str) -> dict[str, d
     )
     documents = {
         "smn4lang/development_manifest_sub01.json": development_manifest,
-        "smn4lang/story_reference.json": reference,
-        "smn4lang/story_reference.provenance.json": provenance,
-        "smn4lang/ovmi_support.json": support,
+        "smn4lang/vocabulary_support.json": support,
     }
     for size, manifest in vocabularies.items():
         documents[f"smn4lang/vocabulary_N{size}.json"] = manifest
@@ -690,15 +597,6 @@ def _conditions_document(generator_sha256: str) -> dict:
                     "test_predictions_generated": False,
                     "word": {"model.use_transformer": False},
                 },
-            },
-            "domain_reference": {"status": "not_frozen"},
-            "full_ovmi": {
-                "missing_candidate_true_sample": "unavailable",
-                "observed_support_is_not_full_ovmi": True,
-                "remove_missing_candidates": False,
-                "retrieval_and_coverage_remain_reportable": True,
-                "smooth_zero_support_rows": False,
-                "substitute_other_metric": False,
             },
             "generator": "braindecoding.protocols",
             "generator_sha256": generator_sha256,

@@ -1,4 +1,4 @@
-"""一次生成当前正文使用的 Figure 2、Figure 3 和 Figure 4。"""
+"""一次生成当前正文使用的 Figure 2 和 Figure 3。"""
 
 from __future__ import annotations
 
@@ -6,11 +6,10 @@ import argparse
 from pathlib import Path
 
 try:
-    from . import fig2_decoding_performance, fig3_information, fig4_audit
+    from . import fig2_decoding_performance, fig3_audit
 except ImportError:  # 直接运行本文件时使用。
     import fig2_decoding_performance
-    import fig3_information
-    import fig4_audit
+    import fig3_audit
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -34,14 +33,9 @@ def make_all(
             figure_dir / "fig2_decoding_performance",
         ),
         (
-            fig3_information,
-            export_dir / "fig3_information.csv",
-            figure_dir / "fig3_information",
-        ),
-        (
-            fig4_audit,
-            export_dir / "fig4_audit.csv",
-            figure_dir / "fig4_audit",
+            fig3_audit,
+            export_dir / "fig3_audit.csv",
+            figure_dir / "fig3_audit",
         ),
     )
     for module, data_path, output_stem in specifications:

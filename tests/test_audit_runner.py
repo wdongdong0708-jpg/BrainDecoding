@@ -63,23 +63,11 @@ def test_libribrain_runs_only_existing_frozen_n50_vocabulary():
     assets = runner._load_protocol_assets("libribrain100")
     assert set(assets["vocabularies"]) == {50}
     assert len(assets["vocabularies"][50]["vocabulary"]) == 50
-    assert assets["story_reference"] is None
-    assert assets["language"] == "en"
     assert set(assets["vocabulary_statuses"]) == {20, 100, 150}
     assert all(
         value["reason"] == "vocabulary_manifest_not_frozen"
         for value in assets["vocabulary_statuses"].values()
     )
-
-
-def test_dataset_ovmi_languages_are_explicit():
-    assert runner.DATASET_LANGUAGES == {
-        "chineseeeg2_littleprince": "zh",
-        "smn4lang": "zh",
-        "libribrain100": "en",
-        "pallier2025": "fr",
-    }
-
 
 class _RuntimeDataset:
     def __init__(self, table):

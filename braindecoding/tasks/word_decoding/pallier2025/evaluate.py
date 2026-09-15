@@ -118,7 +118,7 @@ def evaluate_checkpoint(
         summary["controls"]["zero_meg"] = zero_metrics
 
     if save:
-        manifests, story_reference = load_vocabulary_assets(
+        manifests = load_vocabulary_assets(
             training.VOCABULARY_ASSET_DIRECTORY
         )
         vocabulary_results = evaluate_vocabulary_manifests(
@@ -126,8 +126,6 @@ def evaluate_checkpoint(
             encoded["targets"],
             encoded["words"],
             manifests,
-            story_reference,
-            language="fr",
         )
         canonical = canonical_evaluation_from_legacy(
             config,

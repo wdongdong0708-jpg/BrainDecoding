@@ -32,7 +32,7 @@ DATA_PATH = PROJECT_ROOT / "reports" / "exports" / "fig2_decoding_performance.cs
 OUTPUT_STEM = PROJECT_ROOT / "paper" / "figures" / "fig2_decoding_performance"
 DATASET_ORDER = ("ChineseEEG2", "SMN4Lang", "Pallier2025")
 MODEL_ORDER = ("word", "context")
-VOCABULARY_SIZES = (20)
+VOCABULARY_SIZES = (20,)
 
 
 def _optional_float(value: str) -> float | None:

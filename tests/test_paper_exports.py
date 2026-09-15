@@ -80,22 +80,9 @@ def _create_run(config_root, output_root, dataset, scope, experiment, model):
     )
     vocabularies = {}
     for size in (20, 50, 100, 150):
-        available = size == 20 or dataset == "pallier2025" and size == 50
         value = (0.4 if model == "word" else 0.6) * 20 / size
         vocabularies[str(size)] = {
             "retrieval": _retrieval(value),
-            "ovmi": {
-                "story": (
-                    {
-                        "available": True,
-                        "score_bits": value / 3,
-                        "coverage": 0.25,
-                        "in_vocab_information_bits": value,
-                    }
-                    if available
-                    else {"available": False, "reason": "missing_true_class_support"}
-                )
-            },
         }
     _write_json(
         run / "evaluation" / "val.json",
@@ -242,8 +229,7 @@ def test_export_contract_and_read_boundaries(paper_export_fixture):
         name: _read_csv(export_dir / name)
         for name in (
             "fig2_decoding_performance.csv",
-            "fig3_information.csv",
-            "fig4_audit.csv",
+            "fig3_audit.csv",
         )
     }
     all_rows = [row for rows in figure_rows.values() for row in rows]
@@ -255,21 +241,11 @@ def test_export_contract_and_read_boundaries(paper_export_fixture):
     assert all(row["dataset"] != "LibriBrain100" for row in all_rows)
     assert {row["model"] for row in all_rows} == {"word", "context"}
     assert len(figure_rows["fig2_decoding_performance.csv"]) == 24
-    assert len(figure_rows["fig3_information.csv"]) == 24
-    assert len(figure_rows["fig4_audit.csv"]) == 96
-
-    unavailable = [
-        row
-        for row in figure_rows["fig3_information.csv"]
-        if row["available"] == "false"
-    ]
-    assert unavailable
-    assert all(row["ovmi_bits"] == "" for row in unavailable)
-    assert {row["reason"] for row in unavailable} == {"missing_true_class_support"}
+    assert len(figure_rows["fig3_audit.csv"]) == 96
 
     donor = next(
         row
-        for row in figure_rows["fig4_audit.csv"]
+        for row in figure_rows["fig3_audit.csv"]
         if row["dataset"] == "ChineseEEG2"
         and row["model"] == "context"
         and row["control"] == "donor"
@@ -324,10 +300,10 @@ def test_current_validation_n50_matches_canonical_outputs(tmp_path):
         }
     )
 
-    fig4 = _read_csv(export_dir / "fig4_audit.csv")
+    fig3 = _read_csv(export_dir / "fig3_audit.csv")
     context = {
         (row["dataset"], row["control"]): float(row["macro_top10"])
-        for row in fig4
+        for row in fig3
         if row["split"] == "val"
         and row["model"] == "context"
         and row["vocabulary_size"] == "50"

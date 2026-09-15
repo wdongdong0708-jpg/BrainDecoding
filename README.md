@@ -12,12 +12,6 @@ $env:BRAINDECODING_MODEL_ROOT = "D:/code/dascoli-word-decoding/models"
 pip install -e .
 ```
 
-OVMI 是可选依赖，并固定到已审计提交：
-
-```powershell
-pip install -e ".[ovmi]"
-```
-
 常用命令：
 
 ```text

@@ -385,16 +385,9 @@ def test_pallier_protocol_assets_are_train_only_stable_and_split_independent():
             for word in vocabulary["vocabulary"]
         ]
         assert ranked == sorted(ranked, key=lambda item: (-item[1], item[0]))
-    reference = first["story_reference.json"]
-    provenance = first["story_reference.provenance.json"]
-    assert sum(reference.values()) == 15256
-    assert len(reference) == 2426
-    assert provenance["source_materials"] == list(pallier2025.RUNS)
-    assert provenance["subject_repetitions_counted"] is False
-    assert provenance["domain_reference"]["status"] == "not_frozen"
-    assert provenance["includes_train"] is True
-    assert provenance["includes_val"] is True
-    assert provenance["includes_test"] is True
+    support = first["vocabulary_support.json"]
+    assert support["asset_type"] == "evaluation_vocabulary_support"
+    assert support["support_audit_used_for_vocabulary_selection"] is False
 
 
 def test_local_pallier_text_product_is_reference_gated_and_reproducible():

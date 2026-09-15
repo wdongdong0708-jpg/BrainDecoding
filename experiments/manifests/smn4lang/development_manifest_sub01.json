@@ -19,9 +19,9 @@
     "sub-06"
   ],
   "formal_manifest_status": "canonical_sub01-06_derived_complete",
-  "generator": "experiments/generate_manifests.py",
-  "generator_sha256": "18e934562f834128f5d281c2d3dba2bbe18778f277ca690c4f66a36d79ea6acc",
-  "manifest_sha256": "b7d7ebf051ca6e3ae364bcf368833da2bd1c2fa9cacd6efa191a578a682c1b14",
+  "generator": "braindecoding.protocols",
+  "generator_sha256": "f76d12721baee4a0d746e3851210252fbbffd62239a1660e49861bffaed86e79",
+  "manifest_sha256": "cc8364e89fc6bfaccbee1f09e2fbe087c93a1594033fa335a46ccbdefcc57225",
   "observed_subject_order": [
     "sub-01"
   ],

@@ -1,26 +1,19 @@
 {
-  "asset_type": "ovmi_evaluation_support",
+  "asset_type": "evaluation_vocabulary_support",
   "dataset": "SMN4Lang",
-  "full_ovmi_rule": {
-    "missing_true_sample_action": "unavailable",
-    "remove_missing_words": false,
-    "report_coverage_and_retrieval": true,
-    "silent_metric_substitution": false,
-    "smooth_zero_rows": false
-  },
-  "generator": "experiments/generate_manifests.py",
-  "generator_sha256": "18e934562f834128f5d281c2d3dba2bbe18778f277ca690c4f66a36d79ea6acc",
-  "manifest_sha256": "38c22332b00de2049e90ac99b82870b3d82b66316af0a8d9e16864050754c939",
+  "generator": "braindecoding.protocols",
+  "generator_sha256": "f76d12721baee4a0d746e3851210252fbbffd62239a1660e49861bffaed86e79",
+  "manifest_sha256": "9c30eb041bf0a8d593e387d1ee49a88822e6b2d299ccbdc3426d2fff89cb0d19",
   "status": "development_sub01_support_audit",
   "support_audit_used_for_vocabulary_selection": false,
   "test_status": "raw_neural_data_preprocessed_no_model_evaluation_labels_inspected",
   "vocabularies": {
     "N100": {
-      "candidate_manifest_sha256": "c1c8222548a4bf9fddb5a015f6025b7b582d8ae2459d41c15a5db8ee6ea70390",
+      "candidate_manifest_sha256": "def6d22e517ca046f6ef66ed17b60ca43777b801d61846243974d06972651a60",
       "splits": {
         "test": {
-          "full_ovmi_status": "unavailable_missing_true_samples",
-          "missing_word_count": 5,
+          "candidate_count": 100,
+          "missing_candidate_count": 5,
           "missing_words": [
             "直播",
             "次",
@@ -28,11 +21,12 @@
             "文学",
             "松茸"
           ],
-          "supported_word_count": 95
+          "support_fraction": 0.95,
+          "supported_candidate_count": 95
         },
         "val": {
-          "full_ovmi_status": "unavailable_missing_true_samples",
-          "missing_word_count": 6,
+          "candidate_count": 100,
+          "missing_candidate_count": 6,
           "missing_words": [
             "直播",
             "教育",
@@ -41,16 +35,17 @@
             "又",
             "松茸"
           ],
-          "supported_word_count": 94
+          "support_fraction": 0.94,
+          "supported_candidate_count": 94
         }
       }
     },
     "N150": {
-      "candidate_manifest_sha256": "5356cb719fa1e7fd2f946ae536c74452b1698280caafbd929985e5dab9cdfa6c",
+      "candidate_manifest_sha256": "9168132de62c3e78415f94473e431a9baea68a4fa69529f09f2366b8310cc757",
       "splits": {
         "test": {
-          "full_ovmi_status": "unavailable_missing_true_samples",
-          "missing_word_count": 17,
+          "candidate_count": 150,
+          "missing_candidate_count": 17,
           "missing_words": [
             "直播",
             "次",
@@ -70,11 +65,12 @@
             "自然",
             "意义"
           ],
-          "supported_word_count": 133
+          "support_fraction": 0.8866666666666667,
+          "supported_candidate_count": 133
         },
         "val": {
-          "full_ovmi_status": "unavailable_missing_true_samples",
-          "missing_word_count": 17,
+          "candidate_count": 150,
+          "missing_candidate_count": 17,
           "missing_words": [
             "直播",
             "教育",
@@ -94,46 +90,51 @@
             "你",
             "企业"
           ],
-          "supported_word_count": 133
+          "support_fraction": 0.8866666666666667,
+          "supported_candidate_count": 133
         }
       }
     },
     "N20": {
-      "candidate_manifest_sha256": "b729e5f1c9b1e6cd6cdca988d90c05fdc28414f6ee8fe7a4306315cfefb62010",
+      "candidate_manifest_sha256": "8df6214d3b2c1f2b839fdcb2395ef19c508346e21422bc12160dc693e939b537",
       "splits": {
         "test": {
-          "full_ovmi_status": "available",
-          "missing_word_count": 0,
+          "candidate_count": 20,
+          "missing_candidate_count": 0,
           "missing_words": [],
-          "supported_word_count": 20
+          "support_fraction": 1.0,
+          "supported_candidate_count": 20
         },
         "val": {
-          "full_ovmi_status": "available",
-          "missing_word_count": 0,
+          "candidate_count": 20,
+          "missing_candidate_count": 0,
           "missing_words": [],
-          "supported_word_count": 20
+          "support_fraction": 1.0,
+          "supported_candidate_count": 20
         }
       }
     },
     "N50": {
-      "candidate_manifest_sha256": "10cfa954c2e789c3c9bba806403ad5c8fa3a725ecca290967682f20c20f4359b",
+      "candidate_manifest_sha256": "cbc3fcafd3e5aea00a6e8c6bcc7a69eaf7f982b41e9ea38b84f7d74f8b647de5",
       "splits": {
         "test": {
-          "full_ovmi_status": "unavailable_missing_true_samples",
-          "missing_word_count": 1,
+          "candidate_count": 50,
+          "missing_candidate_count": 1,
           "missing_words": [
             "直播"
           ],
-          "supported_word_count": 49
+          "support_fraction": 0.98,
+          "supported_candidate_count": 49
         },
         "val": {
-          "full_ovmi_status": "unavailable_missing_true_samples",
-          "missing_word_count": 2,
+          "candidate_count": 50,
+          "missing_candidate_count": 2,
           "missing_words": [
             "直播",
             "教育"
           ],
-          "supported_word_count": 48
+          "support_fraction": 0.96,
+          "supported_candidate_count": 48
         }
       }
     }

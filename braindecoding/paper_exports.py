@@ -42,18 +42,6 @@ FIG3_FIELDS = (
     "dataset",
     "split",
     "model",
-    "vocabulary_size",
-    "reference",
-    "available",
-    "ovmi_bits",
-    "coverage",
-    "in_vocab_information_bits",
-    "reason",
-)
-FIG4_FIELDS = (
-    "dataset",
-    "split",
-    "model",
     "control",
     "vocabulary_size",
     "available",
@@ -113,37 +101,6 @@ def _evaluation_rows(dataset: str, model: str, evaluation: dict) -> list[dict]:
             }
         )
     return sorted(rows, key=lambda row: row["vocabulary_size"])
-
-
-def _information_rows(dataset: str, model: str, evaluation: dict) -> list[dict]:
-    split = evaluation.get("data", {}).get("split")
-    rows = []
-    for size_text, block in evaluation.get("vocabularies", {}).items():
-        for reference in ("story", "story_specific"):
-            result = block.get("ovmi", {}).get(reference)
-            if result is None:
-                continue
-            available = result.get("available") is True
-            reason = result.get("reason")
-            if not available and reason is None:
-                reason = result.get("status", "not_run")
-            rows.append(
-                {
-                    "dataset": dataset,
-                    "split": split,
-                    "model": model,
-                    "vocabulary_size": int(size_text),
-                    "reference": reference,
-                    "available": available,
-                    "ovmi_bits": result.get("score_bits") if available else None,
-                    "coverage": result.get("coverage") if available else None,
-                    "in_vocab_information_bits": (
-                        result.get("in_vocab_information_bits") if available else None
-                    ),
-                    "reason": None if available else reason,
-                }
-            )
-    return sorted(rows, key=lambda row: (row["vocabulary_size"], row["reference"]))
 
 
 def _direct_audit_metrics(block: dict) -> dict:
@@ -279,13 +236,12 @@ def export_paper_results(
     output_root: str | Path | None = None,
     project_root: str | Path = PROJECT_ROOT,
 ) -> dict:
-    """读取正式 canonical JSON 并写出 Figure 2--4 的 CSV 与 manifest。"""
+    """读取正式 canonical JSON 并写出 Figure 2--3 的 CSV 与 manifest。"""
     export_dir = Path(export_dir)
     project_root = Path(project_root)
     output_root = Path(output_root) if output_root is not None else project_root / "outputs"
     fig2_rows = []
     fig3_rows = []
-    fig4_rows = []
     sources = []
     runs = []
     included_selectors = []
@@ -347,7 +303,6 @@ def export_paper_results(
                 raise ValueError(f"训练与评价 checkpoint SHA 不一致：{evaluation_path}")
             available_splits.add(split)
             fig2_rows.extend(_evaluation_rows(dataset, model, evaluation))
-            fig3_rows.extend(_information_rows(dataset, model, evaluation))
             sources.append(
                 _source(
                     evaluation_path,
@@ -372,7 +327,7 @@ def export_paper_results(
             audit_checkpoint = audit.get("checkpoint", {}).get("sha256")
             if checkpoint_sha and audit_checkpoint != checkpoint_sha:
                 raise ValueError(f"训练与审计 checkpoint SHA 不一致：{audit_path}")
-            fig4_rows.extend(_audit_rows(dataset, model, audit))
+            fig3_rows.extend(_audit_rows(dataset, model, audit))
             sources.append(
                 _source(
                     audit_path,
@@ -388,21 +343,19 @@ def export_paper_results(
     model_order = {name: index for index, name in enumerate(_MODEL_RUNS)}
     split_order = {"val": 0, "test": 1}
     control_order = {"clean": 0, "temporal": 1, "donor": 2, "structure_only": 3}
-    for rows in (fig2_rows, fig3_rows, fig4_rows):
+    for rows in (fig2_rows, fig3_rows):
         rows.sort(
             key=lambda row: (
                 dataset_order[row["dataset"]],
                 split_order.get(row["split"], 99),
                 model_order[row["model"]],
                 row["vocabulary_size"],
-                row.get("reference", ""),
                 control_order.get(row.get("control"), -1),
             )
         )
 
     _write_csv(export_dir / "fig2_decoding_performance.csv", FIG2_FIELDS, fig2_rows)
-    _write_csv(export_dir / "fig3_information.csv", FIG3_FIELDS, fig3_rows)
-    _write_csv(export_dir / "fig4_audit.csv", FIG4_FIELDS, fig4_rows)
+    _write_csv(export_dir / "fig3_audit.csv", FIG3_FIELDS, fig3_rows)
 
     manifest = {
         "schema_version": 1,

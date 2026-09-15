@@ -18,7 +18,6 @@ from braindecoding.results import (
     write_evaluation_result,
 )
 from braindecoding.models import build_brain_embedding_model
-from braindecoding.evaluation.ovmi import fixed_vocabulary_ovmi_metrics
 
 
 def evaluate_checkpoint(
@@ -76,14 +75,6 @@ def evaluate_checkpoint(
         top_ks=top_ks,
         amp=config["training"].get("amp", True),
     )
-    metrics["ovmi"] = fixed_vocabulary_ovmi_metrics(
-        encoded["predictions"],
-        encoded["targets"],
-        encoded["words"],
-        dataset_module.SMN4LANG50_VOCABULARY,
-        config.get("evaluation", {}).get("ovmi", {}),
-        base_dir=PROJECT_ROOT,
-    )
     summary = {
         "status": "smoke_evaluation_completed" if smoke else "evaluation_completed",
         "split": split,
@@ -110,7 +101,7 @@ def evaluate_checkpoint(
 
     if save:
         if "experiment" in config:
-            vocabulary_manifests, story_reference = load_vocabulary_assets(
+            vocabulary_manifests = load_vocabulary_assets(
                 PROJECT_ROOT / "experiments" / "manifests" / "smn4lang"
             )
             vocabulary_results = evaluate_vocabulary_manifests(
@@ -118,8 +109,6 @@ def evaluate_checkpoint(
                 encoded["targets"],
                 encoded["words"],
                 vocabulary_manifests,
-                story_reference,
-                language="zh",
             )
             canonical = canonical_evaluation_from_legacy(
                 config,

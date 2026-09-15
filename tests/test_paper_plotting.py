@@ -8,8 +8,7 @@ os.environ.setdefault("MPLBACKEND", "Agg")
 
 from paper.plotting import (  # noqa: E402
     fig2_decoding_performance,
-    fig3_information,
-    fig4_audit,
+    fig3_audit,
     make_all,
 )
 
@@ -31,7 +30,6 @@ def plotting_exports(tmp_path):
     export_dir = tmp_path / "reports" / "exports"
     fig2_rows = []
     fig3_rows = []
-    fig4_rows = []
     for dataset_index, dataset in enumerate(DATASETS):
         for model_index, model in enumerate(MODELS):
             for size in (20, 50, 100, 150):
@@ -49,21 +47,6 @@ def plotting_exports(tmp_path):
                         "mrr": value / 2,
                     }
                 )
-                info_available = size == 20 or dataset == "Pallier2025" and size == 50
-                fig3_rows.append(
-                    {
-                        "dataset": dataset,
-                        "split": "val",
-                        "model": model,
-                        "vocabulary_size": size,
-                        "reference": "story",
-                        "available": str(info_available).lower(),
-                        "ovmi_bits": value / 3 if info_available else "",
-                        "coverage": 0.25 if info_available else "",
-                        "in_vocab_information_bits": value if info_available else "",
-                        "reason": "" if info_available else "missing_true_class_support",
-                    }
-                )
             for control, value in (
                 ("clean", 0.6),
                 ("temporal", 0.25),
@@ -71,7 +54,7 @@ def plotting_exports(tmp_path):
                 ("structure_only", 0.2),
             ):
                 available = not (model == "word" and control == "structure_only")
-                fig4_rows.append(
+                fig3_rows.append(
                     {
                         "dataset": dataset,
                         "split": "val",
@@ -104,23 +87,7 @@ def plotting_exports(tmp_path):
         fig2_rows,
     )
     _write_csv(
-        export_dir / "fig3_information.csv",
-        (
-            "dataset",
-            "split",
-            "model",
-            "vocabulary_size",
-            "reference",
-            "available",
-            "ovmi_bits",
-            "coverage",
-            "in_vocab_information_bits",
-            "reason",
-        ),
-        fig3_rows,
-    )
-    _write_csv(
-        export_dir / "fig4_audit.csv",
+        export_dir / "fig3_audit.csv",
         (
             "dataset",
             "split",
@@ -136,7 +103,7 @@ def plotting_exports(tmp_path):
             "ci_low",
             "ci_high",
         ),
-        fig4_rows,
+        fig3_rows,
     )
     return export_dir
 
@@ -158,8 +125,7 @@ def test_plotting_reads_exports_and_contains_no_experiment_literals():
 def test_split_val_loads_and_missing_test_fails(plotting_exports):
     specifications = (
         (fig2_decoding_performance, "fig2_decoding_performance.csv"),
-        (fig3_information, "fig3_information.csv"),
-        (fig4_audit, "fig4_audit.csv"),
+        (fig3_audit, "fig3_audit.csv"),
     )
     for module, filename in specifications:
         path = plotting_exports / filename
@@ -179,8 +145,7 @@ def test_each_figure_and_make_all_generate_pdf_and_svg(plotting_exports, tmp_pat
     individual_dir = tmp_path / "individual"
     specifications = (
         (fig2_decoding_performance, "fig2_decoding_performance.csv", "fig2"),
-        (fig3_information, "fig3_information.csv", "fig3"),
-        (fig4_audit, "fig4_audit.csv", "fig4"),
+        (fig3_audit, "fig3_audit.csv", "fig3"),
     )
     for module, filename, stem in specifications:
         paths = module.main(
@@ -196,5 +161,5 @@ def test_each_figure_and_make_all_generate_pdf_and_svg(plotting_exports, tmp_pat
         export_dir=plotting_exports,
         figure_dir=tmp_path / "all",
     )
-    assert len(all_paths) == 6
+    assert len(all_paths) == 4
     assert all(path.is_file() and path.stat().st_size > 0 for path in all_paths)

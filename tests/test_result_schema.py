@@ -102,7 +102,6 @@ def test_evaluation_schema_is_identical_for_three_word_datasets():
             "median_rank": 4.0,
             "mean_reciprocal_rank": 0.4,
         },
-        ovmi_story={"available": True, "score_bits": 0.5, "coverage": 0.8},
     )
     payloads = [
         _evaluation(_config(dataset), block)
@@ -199,8 +198,6 @@ def test_four_vocabulary_blocks_reuse_existing_retrieval_numbers():
         targets,
         words,
         manifests,
-        {"甲": 3, "乙": 2},
-        language="zh",
     )
     expected = fixed_vocabulary_retrieval_metrics(
         queries,
@@ -212,13 +209,7 @@ def test_four_vocabulary_blocks_reuse_existing_retrieval_numbers():
     )
     assert set(results) == set(PRIMARY_VOCABULARY_SIZES)
     assert results[20]["retrieval"] == canonical_retrieval(expected)
-    assert results[20]["ovmi"]["story"] == {
-        "available": False,
-        "reason": "missing_true_class_support",
-    }
-
-
-def test_ovmi_unavailable_reasons_follow_frozen_protocol():
+def test_missing_candidate_support_is_explicit():
     block = canonical_vocabulary_result(
         20,
         manifest_sha256="v" * 64,
@@ -232,14 +223,6 @@ def test_ovmi_unavailable_reasons_follow_frozen_protocol():
         "supported_candidate_count": 18,
         "missing_candidate_count": 2,
         "missing_words": ["甲", "乙"],
-    }
-    assert block["ovmi"]["story"] == {
-        "available": False,
-        "reason": "missing_true_class_support",
-    }
-    assert block["ovmi"]["domain"] == {
-        "available": False,
-        "reason": "domain_reference_not_frozen",
     }
 
 

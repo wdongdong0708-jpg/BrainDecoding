@@ -200,7 +200,6 @@ def _write_report_fixtures(output):
                 "median_rank": 3.0,
                 "mrr": 0.5,
             },
-            "ovmi": {"story": {"available": False, "reason": "missing_true_class_support"}},
         }
         for size in (20, 50)
     }

@@ -11,7 +11,6 @@ from braindecoding.experiment import (
     experiment_identity,
     file_sha256,
 )
-from braindecoding.evaluation.ovmi import fixed_vocabulary_ovmi_metrics
 from braindecoding.evaluation.retrieval import fixed_vocabulary_retrieval_metrics
 
 
@@ -44,9 +43,6 @@ def canonical_vocabulary_result(
     *,
     manifest_sha256=None,
     retrieval_metrics=None,
-    ovmi_story=None,
-    ovmi_domain=None,
-    coverage=None,
 ):
     """构造单个冻结候选词表的公共评价结果块。"""
     candidate_count = int(candidate_count)
@@ -65,40 +61,11 @@ def canonical_vocabulary_result(
         "missing_words": missing_words,
     }
 
-    if missing_words:
-        story = {
-            "available": False,
-            "reason": "missing_true_class_support",
-        }
-    elif ovmi_story is None:
-        story = {"status": "not_run"}
-    else:
-        story = copy.deepcopy(ovmi_story)
-        if story.get("reason") in {
-            "full_ovmi_requires_true_samples_for_every_word",
-            "missing_true_samples_in_frozen_vocabulary",
-        }:
-            story = {
-                "available": False,
-                "reason": "missing_true_class_support",
-            }
-    domain = (
-        copy.deepcopy(ovmi_domain)
-        if ovmi_domain is not None
-        else {
-            "available": False,
-            "reason": "domain_reference_not_frozen",
-        }
-    )
-    if coverage is None and story.get("available"):
-        coverage = story.get("coverage")
     result = {
         "candidate_count": candidate_count,
         "manifest_sha256": manifest_sha256,
         "support": support,
-        "coverage": coverage,
         "retrieval": canonical_retrieval(metrics),
-        "ovmi": {"story": story, "domain": domain},
     }
     if retrieval_metrics is None:
         result["status"] = "not_run"
@@ -106,7 +73,7 @@ def canonical_vocabulary_result(
 
 
 def load_vocabulary_assets(directory):
-    """从调用方指定目录读取四个冻结词表和独立 story reference。"""
+    """从调用方指定目录读取四个冻结词表。"""
     directory = Path(directory)
     manifests = {}
     for size in PRIMARY_VOCABULARY_SIZES:
@@ -114,11 +81,7 @@ def load_vocabulary_assets(directory):
         if not path.is_file():
             raise FileNotFoundError(f"找不到冻结候选词表：{path}")
         manifests[size] = json.loads(path.read_text(encoding="utf-8"))
-    reference_path = directory / "story_reference.json"
-    if not reference_path.is_file():
-        raise FileNotFoundError(f"找不到冻结 story reference：{reference_path}")
-    reference = json.loads(reference_path.read_text(encoding="utf-8"))
-    return manifests, reference
+    return manifests
 
 
 def evaluate_vocabulary_manifests(
@@ -126,9 +89,6 @@ def evaluate_vocabulary_manifests(
     targets,
     words,
     vocabulary_manifests,
-    story_reference,
-    *,
-    language,
 ):
     """用现有公共数学一次生成四个冻结词表的 canonical 结果块。"""
     results = {}
@@ -147,23 +107,10 @@ def evaluate_vocabulary_manifests(
             top_ks=(1, 10),
             vocabulary_name=f"frozen_N{size}",
         )
-        ovmi_story = fixed_vocabulary_ovmi_metrics(
-            predictions,
-            targets,
-            words,
-            vocabulary,
-            {
-                "enabled": True,
-                "method": "full",
-                "reference": story_reference,
-                "language": language,
-            },
-        )
         results[size] = canonical_vocabulary_result(
             size,
             manifest_sha256=manifest.get("manifest_sha256"),
             retrieval_metrics=metrics,
-            ovmi_story=ovmi_story,
         )
     return results
 
@@ -228,7 +175,6 @@ def canonical_evaluation_from_legacy(
             candidate_count,
             manifest_sha256=vocabulary_manifest_sha256,
             retrieval_metrics=metrics,
-            ovmi_story=metrics.get("ovmi"),
         )
         vocabulary_results = {candidate_count: block}
     return build_evaluation_result(
@@ -373,7 +319,6 @@ _REPORT_NOTICE = (
 
 _HUMAN_TEXT = {
     "completed": "已完成",
-    "domain_reference_not_frozen": "领域参考分布尚未冻结",
     "early_stopping": "早停",
     "epochs": "轮次",
     "failed": "失败",
@@ -383,7 +328,6 @@ _HUMAN_TEXT = {
     "not available": "不可用",
     "not_run": "未运行",
     "running": "运行中",
-    "story_reference_not_frozen": "故事参考分布尚未冻结",
     "update_budget_reached": "达到更新预算",
     "updates": "更新",
 }
@@ -400,20 +344,6 @@ def _display(value):
     if isinstance(value, float):
         return f"{value:.6f}"
     return _HUMAN_TEXT.get(str(value), str(value))
-
-
-def _story_score(block):
-    story = (block or {}).get("ovmi", {}).get("story", {})
-    if story.get("available") is False:
-        return f"— ({_display(story.get('reason', 'not available'))})"
-    return _display(story.get("score_bits"))
-
-
-def _audit_story_score(block):
-    story = (block or {}).get("ovmi_story", {})
-    if story.get("available") is False:
-        return f"— ({_display(story.get('reason', 'not available'))})"
-    return _display(story.get("score_bits"))
 
 
 def render_run_report(config):
@@ -482,8 +412,8 @@ def render_run_report(config):
             "",
             "## 验证集结果",
             "",
-            "| N | 支持类别 | Macro Top-1 | Macro Top-10 | Top-1 | Top-10 | 中位排名 | MRR | 故事 OVMI |",
-            "|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+            "| N | 支持类别 | Macro Top-1 | Macro Top-10 | Top-1 | Top-10 | 中位排名 | MRR |",
+            "|---:|---:|---:|---:|---:|---:|---:|---:|",
         ]
     )
     vocabularies = (evaluation or {}).get("vocabularies", {})
@@ -505,7 +435,6 @@ def render_run_report(config):
                     _display(retrieval.get("top10")),
                     _display(retrieval.get("median_rank")),
                     _display(retrieval.get("mrr")),
-                    _story_score(block),
                 ]
             )
             + " |"
@@ -516,13 +445,13 @@ def render_run_report(config):
             "",
             "## 验证集审计",
             "",
-            "| 对照条件 | Macro Top-1 | Macro Top-10 | 中位排名 | MRR | 故事 OVMI |",
-            "|---|---:|---:|---:|---:|---:|",
+            "| 对照条件 | Macro Top-1 | Macro Top-10 | 中位排名 | MRR |",
+            "|---|---:|---:|---:|---:|",
         ]
     )
     controls = (audit or {}).get("controls", {})
     if not controls:
-        lines.append("| 审计 | 未运行 | — | — | — | — |")
+        lines.append("| 审计 | 未运行 | — | — | — |")
     else:
         control_labels = {
             "clean": "干净条件",
@@ -536,8 +465,7 @@ def render_run_report(config):
                 f"| {control_labels[name]} | {_display(block.get('macro_recall_at_1'))} | "
                 f"{_display(block.get('macro_recall_at_10'))} | "
                 f"{_display(block.get('median_rank'))} | "
-                f"{_display(block.get('mean_reciprocal_rank'))} | "
-                f"{_audit_story_score(block)} |"
+                f"{_display(block.get('mean_reciprocal_rank'))} |"
             )
         donor = controls.get("donor_swap", {}).get("aggregate", {}).get("N50", {})
         donor_retrieval = donor.get("retrieval", {})
@@ -550,16 +478,10 @@ def render_run_report(config):
                 f"[{value.get('ci95_low', value['mean']):.6f}, "
                 f"{value.get('ci95_high', value['mean']):.6f}]"
             )
-        donor_story = donor.get("ovmi_story", {}).get("score_bits", {})
-        donor_story_text = (
-            f"{donor_story['mean']:.6f} ± {donor_story.get('std', 0.0):.6f}"
-            if donor_story.get("mean") is not None
-            else "—"
-        )
         lines.append(
             f"| 供体替换均值 | {aggregate_text('macro_top1')} | "
             f"{aggregate_text('macro_top10')} | {aggregate_text('median_rank')} | "
-            f"{aggregate_text('mrr')} | {donor_story_text} |"
+            f"{aggregate_text('mrr')} |"
         )
 
     event_sha = (evaluation or {}).get("data", {}).get("event_table_sha256")

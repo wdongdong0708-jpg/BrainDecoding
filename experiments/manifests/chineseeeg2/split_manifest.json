@@ -11,9 +11,9 @@
   "dataset": "ChineseEEG2",
   "event_table": "derived/chineseeeg2_littleprince/events/events.csv",
   "event_table_sha256": "c950ed2013ae25d58ea4e9ae7d45289d44f37806dec5ef61ee248f6d2d3abda0",
-  "generator": "experiments/generate_manifests.py",
-  "generator_sha256": "18e934562f834128f5d281c2d3dba2bbe18778f277ca690c4f66a36d79ea6acc",
-  "manifest_sha256": "a569e0e6c63a8c9845c5ec2fbaf1039ab67399c1df6b85bd7be62fd2596a36e9",
+  "generator": "braindecoding.protocols",
+  "generator_sha256": "f76d12721baee4a0d746e3851210252fbbffd62239a1660e49861bffaed86e79",
+  "manifest_sha256": "fd785da924a11fce3fe51b89f66aa7eff36171574c62070cc7dae3a5c66a2be4",
   "shared_excluded_units": {
     "ChineseEEG2|littleprince|chapter-14": {
       "configured_split": "test",

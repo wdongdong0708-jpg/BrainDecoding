@@ -8,7 +8,6 @@ from pathlib import Path
 
 from . import train as training
 
-from braindecoding.config import PROJECT_ROOT
 from braindecoding.data import libribrain as dataset_module
 from braindecoding.experiment import evaluation_output_path
 from braindecoding.results import (
@@ -16,7 +15,6 @@ from braindecoding.results import (
     write_evaluation_result,
 )
 from braindecoding.models import build_brain_embedding_model
-from braindecoding.evaluation.ovmi import fixed_vocabulary_ovmi_metrics
 
 
 def evaluate_checkpoint(
@@ -71,14 +69,6 @@ def evaluate_checkpoint(
         device,
         top_ks=top_ks,
         amp=config["training"].get("amp", True),
-    )
-    metrics["ovmi"] = fixed_vocabulary_ovmi_metrics(
-        encoded["predictions"],
-        encoded["targets"],
-        encoded["words"],
-        dataset_module.LIBRIBRAIN100_50_WORD_VOCABULARY,
-        config.get("evaluation", {}).get("ovmi", {}),
-        base_dir=PROJECT_ROOT,
     )
     summary = {
         "status": "smoke_evaluation_completed" if smoke else "evaluation_completed",

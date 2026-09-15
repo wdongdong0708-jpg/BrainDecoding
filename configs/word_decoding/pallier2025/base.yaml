@@ -113,14 +113,6 @@ evaluation:
   vocabulary_sizes: [20, 50, 100, 150]
   selection_vocabulary_size: 50
   selection_metric: retrieval_acc10_vocab=pallier2025_50_macro
-  ovmi:
-    method: full
-    language: fr
-    story_reference: experiments/manifests/pallier2025/story_reference.json
-    support_manifest: experiments/manifests/pallier2025/ovmi_support.json
-    domain:
-      available: false
-      reason: domain_reference_not_frozen
 
 provenance:
   raw_dataset_name: LittlePrince_MEG_French_Listen_Pallier2025

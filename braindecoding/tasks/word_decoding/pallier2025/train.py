@@ -116,7 +116,7 @@ def loader_group_column(config) -> str:
 
 
 def frozen_vocabulary(size=SELECTION_VOCABULARY_SIZE):
-    manifests, _ = load_vocabulary_assets(VOCABULARY_ASSET_DIRECTORY)
+    manifests = load_vocabulary_assets(VOCABULARY_ASSET_DIRECTORY)
     return tuple(manifests[int(size)]["vocabulary"])
 
 
@@ -328,7 +328,7 @@ def checkpoint_payload(
     split_manifest = json.loads(
         (VOCABULARY_ASSET_DIRECTORY / "run_split.json").read_text(encoding="utf-8")
     )
-    vocabulary_manifests, _ = load_vocabulary_assets(VOCABULARY_ASSET_DIRECTORY)
+    vocabulary_manifests = load_vocabulary_assets(VOCABULARY_ASSET_DIRECTORY)
     payload = {
         "format_version": 1,
         "task": "word_decoding/Pallier2025",

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import copy
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -178,17 +177,6 @@ def _pallier_contract_status(config: dict, event_manifest: dict) -> dict:
     text = json.loads(text_path.read_text(encoding="utf-8"))
     split = json.loads((asset_root / "run_split.json").read_text(encoding="utf-8"))
     qc = json.loads(qc_path.read_text(encoding="utf-8"))
-    story_path = asset_root / "story_reference.json"
-    story = json.loads(story_path.read_text(encoding="utf-8"))
-    story_digest = hashlib.sha256(
-        (
-            json.dumps(story, ensure_ascii=False, indent=2, sort_keys=True)
-            + "\n"
-        ).encode("utf-8")
-    ).hexdigest()
-    story_provenance = json.loads(
-        (asset_root / "story_reference.provenance.json").read_text(encoding="utf-8")
-    )
     vocabulary_hashes = {}
     vocabulary_valid = True
     for size in (20, 50, 100, 150):
@@ -239,8 +227,6 @@ def _pallier_contract_status(config: dict, event_manifest: dict) -> dict:
         "text_content": text.get("content_sha256")
         == PALLIER_TEXT_CONTENT_SHA256,
         "vocabularies": vocabulary_valid,
-        "story_reference": story_provenance.get("reference_sha256")
-        == story_digest,
         "run_split": split.get("assignments")
         == {
             "train": [
@@ -307,7 +293,6 @@ def _pallier_contract_status(config: dict, event_manifest: dict) -> dict:
         "status": "valid" if all(checks.values()) else "invalid",
         "checks": checks,
         "vocabulary_manifest_sha256": vocabulary_hashes,
-        "domain_reference": "not_required_for_training",
         "neural_arrays_loaded": False,
         "model_loaded": False,
     }

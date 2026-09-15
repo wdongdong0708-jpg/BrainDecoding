@@ -1,6 +1,5 @@
 """论文协议资产、来源边界和稳定哈希测试。"""
 
-import hashlib
 import json
 from pathlib import Path
 
@@ -27,15 +26,12 @@ def _vocabularies(dataset):
 
 def test_all_machine_manifests_have_stable_self_hashes():
     paths = sorted(MANIFEST_ROOT.rglob("*.json"))
-    assert len(paths) == 27
+    assert len(paths) == 21
     assert (
         MANIFEST_ROOT / "pallier2025/implementation_diagnostics.json"
     ) in paths
     for path in paths:
         payload = json.loads(path.read_text(encoding="utf-8"))
-        if "manifest_sha256" not in payload:
-            assert path.name == "story_reference.json"
-            continue
         manifests.validate_manifest_sha256(payload)
         assert manifests.with_manifest_sha256(payload) == payload
 
@@ -149,56 +145,6 @@ def test_subject_order_and_multisubject_status_are_explicit():
     ]
 
 
-def test_story_reference_does_not_count_subject_repetitions():
-    table = pd.DataFrame(
-        {
-            "run": [1, 1, 1, 1],
-            "word_index": [0, 1, 0, 1],
-            "subject_id": ["sub-01", "sub-01", "sub-02", "sub-02"],
-            "normalized_word": ["故事", "词", "故事", "词"],
-        }
-    )
-    canonical = manifests.canonical_words(
-        table,
-        deduplicate_by=("run", "word_index"),
-        order_by=("run", "word_index", "subject_id"),
-    )
-    assert manifests.build_story_reference(canonical) == {"故事": 1, "词": 1}
-
-
-def test_story_references_and_provenance_match():
-    expected = {
-        "chineseeeg2": (28123, 2640, 54),
-        "smn4lang": (43327, 9122, 60),
-        "pallier2025": (15256, 2426, 9),
-    }
-    for dataset, (token_count, type_count, unit_count) in expected.items():
-        reference_path = MANIFEST_ROOT / dataset / "story_reference.json"
-        reference = json.loads(reference_path.read_text(encoding="utf-8"))
-        provenance = _load(f"{dataset}/story_reference.provenance.json")
-        assert sum(reference.values()) == provenance["token_count"] == token_count
-        assert len(reference) == provenance["type_count"] == type_count
-        source_units = provenance.get("source_units", provenance.get("source_materials"))
-        assert len(source_units) == unit_count
-        assert provenance["subject_repetitions_counted"] is False
-        assert provenance["domain_reference"]["status"] == "not_frozen"
-        assert provenance["reference_sha256"] == hashlib.sha256(
-            manifests.json_bytes(reference)
-        ).hexdigest()
-
-
-def test_candidate_vocabulary_and_story_reference_are_independent_assets():
-    for dataset in ("chineseeeg2", "smn4lang", "pallier2025"):
-        vocabulary = _load(f"{dataset}/vocabulary_N20.json")
-        reference = _load(f"{dataset}/story_reference.json")
-        provenance = _load(f"{dataset}/story_reference.provenance.json")
-        assert vocabulary["asset_type"] == "candidate_vocabulary"
-        assert "reference_sha256" not in vocabulary
-        assert "vocabulary" not in reference
-        assert provenance["asset_type"] == "story_reference_provenance"
-        assert vocabulary["event_table_sha256"] == provenance["event_table_sha256"]
-
-
 def test_formal_context_and_test_history_are_machine_readable():
     conditions = _load("conditions.json")
     chinese = conditions["datasets"]["ChineseEEG2"]
@@ -251,18 +197,7 @@ def test_primary_sizes_and_control_protocols_are_frozen_without_implementation()
     assert donor["cross_recording_primary"] is False
 
 
-def test_full_ovmi_unavailable_rule_and_missing_words_are_explicit():
-    conditions = _load("conditions.json")
-    rule = conditions["full_ovmi"]
-    assert rule == {
-        "missing_candidate_true_sample": "unavailable",
-        "observed_support_is_not_full_ovmi": True,
-        "remove_missing_candidates": False,
-        "retrieval_and_coverage_remain_reportable": True,
-        "smooth_zero_support_rows": False,
-        "substitute_other_metric": False,
-    }
-
+def test_vocabulary_support_and_missing_words_are_explicit():
     expected_missing = {
         "chineseeeg2": {
             "N20": (0, 0),
@@ -278,17 +213,19 @@ def test_full_ovmi_unavailable_rule_and_missing_words_are_explicit():
         },
     }
     for dataset, expected in expected_missing.items():
-        support = _load(f"{dataset}/ovmi_support.json")
+        support = _load(f"{dataset}/vocabulary_support.json")
+        assert support["asset_type"] == "evaluation_vocabulary_support"
         assert support["support_audit_used_for_vocabulary_selection"] is False
         for name, (val_missing, test_missing) in expected.items():
             splits = support["vocabularies"][name]["splits"]
-            assert splits["val"]["missing_word_count"] == val_missing
-            assert splits["test"]["missing_word_count"] == test_missing
+            assert splits["val"]["missing_candidate_count"] == val_missing
+            assert splits["test"]["missing_candidate_count"] == test_missing
             for split in ("val", "test"):
                 current = splits[split]
-                assert current["missing_word_count"] == len(current["missing_words"])
-                assert current["supported_word_count"] + current["missing_word_count"] == int(
-                    name[1:]
+                assert current["missing_candidate_count"] == len(current["missing_words"])
+                assert current["supported_candidate_count"] + current["missing_candidate_count"] == int(name[1:])
+                assert current["support_fraction"] == pytest.approx(
+                    current["supported_candidate_count"] / int(name[1:])
                 )
 
 

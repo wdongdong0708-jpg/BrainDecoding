@@ -16,23 +16,19 @@ from braindecoding.evaluation.retrieval import fixed_vocabulary_retrieval_metric
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 FROZEN_PROTOCOL_FILE_SHA256 = {
-    "experiments/manifests/conditions.json": "13a8d0e7b792d85541855afade5b934cb42def2ac8823a9cabe3746c3fab7050",
-    "experiments/manifests/chineseeeg2/ovmi_support.json": "bf51055e538c68257d4465cc0787a536cce2b57c8a1df61c36691d77372ff36f",
-    "experiments/manifests/chineseeeg2/split_manifest.json": "322b19d16aaa292a806ddcbba67c17d7cc71a075850dc57e4353f541091bcae5",
-    "experiments/manifests/chineseeeg2/story_reference.json": "143e26604197a97da67806b72c68b70964afafbd213c7a8a8b3c4b7fc39294ed",
-    "experiments/manifests/chineseeeg2/story_reference.provenance.json": "9029e903d1401fc8647a08728929c1f33ab861946a0894b1300e15c842b1bb5d",
-    "experiments/manifests/chineseeeg2/vocabulary_N20.json": "bc3d37af058bc8c8e9c30eec287c731e6656f04b8c1a8f57e4aea16e1bf4b307",
-    "experiments/manifests/chineseeeg2/vocabulary_N50.json": "ee978eafbc036a15546bda5f6666b0d0d00dac262a96e5f4a3600f0ce8ea5484",
-    "experiments/manifests/chineseeeg2/vocabulary_N100.json": "0114918d7c70ced46bb30307f8f0bba0673b6a353100ac229c1f144ba413a273",
-    "experiments/manifests/chineseeeg2/vocabulary_N150.json": "fdad18e16d35556e488197d9c2327121782c4a87e99e6d7cdf52d8fadeacdaa1",
-    "experiments/manifests/smn4lang/development_manifest_sub01.json": "4389c31e288419f452ddab0774f7cee993210e83e663348c68c4946022a69603",
-    "experiments/manifests/smn4lang/ovmi_support.json": "9ccf79a6ddb15bde4f79d88884eda5e7c70ec09faa7b05f2d071caaa4d50a697",
-    "experiments/manifests/smn4lang/story_reference.json": "c733d0bb02566ebb858e21aa5cbda1885378bf7a408a99489c34bb64e5c0d5b2",
-    "experiments/manifests/smn4lang/story_reference.provenance.json": "7f2bc8fc2104e738852413681e247bcafc992fff6975ac2a2606c534b0d97b15",
-    "experiments/manifests/smn4lang/vocabulary_N20.json": "a19712efdd65333433346c3780718c81a3aebb3409786cbb08460f00dadf63e0",
-    "experiments/manifests/smn4lang/vocabulary_N50.json": "f1103e2487fdccc0088dcfb8830905339cf10f0d2a55ded123cea36465c9efcf",
-    "experiments/manifests/smn4lang/vocabulary_N100.json": "83d905894249f01c6852ee0014d3f9bdcae98575121dc2c796b9b32261e42cfa",
-    "experiments/manifests/smn4lang/vocabulary_N150.json": "ccdb955567097f024a2d0f0b4b89945dc2035feebaecd40575d19e6f4646f363",
+    "experiments/manifests/conditions.json": "ca14c1fd5276725970e4c1a7042057c7e32ad26b3230e6c3c18af8a918b64c03",
+    "experiments/manifests/chineseeeg2/split_manifest.json": "775161256c90cf7cc8eff4e5628f4cf180aa972c0569305994060e6a0609fff7",
+    "experiments/manifests/chineseeeg2/vocabulary_N20.json": "ba01a1f7f44dd52193bed5d77cd2d00c32abb75d76770a6b7b7d29691c93cf11",
+    "experiments/manifests/chineseeeg2/vocabulary_N50.json": "963f4a63508dd72f5bd38e270a4dc224a87ccedfe28fe48c978a6d48fdfc5850",
+    "experiments/manifests/chineseeeg2/vocabulary_N100.json": "0c513b24de8cb9c94cf1d37e3317b91cc66eaa5f3d7b43cf05bd21d74b065ea4",
+    "experiments/manifests/chineseeeg2/vocabulary_N150.json": "d1fcc7d21c1ff77afcf812a2d23808265d59abf529fae1d50175a2c0f50dd864",
+    "experiments/manifests/chineseeeg2/vocabulary_support.json": "6e237253a753dfc35624aba06020c508a7952d04827e75ac77a9e97104900dff",
+    "experiments/manifests/smn4lang/development_manifest_sub01.json": "7649cb3a4cd3415afb739bb09bc615a491767bd0ec09c869f49a1ae01bad497a",
+    "experiments/manifests/smn4lang/vocabulary_N20.json": "62992e78c9e8010920dfc51c77b33abd5552dc800f0e1fdcd162f630fb3a1587",
+    "experiments/manifests/smn4lang/vocabulary_N50.json": "3e4c6475cb8b0d4865dc693bb72115372417a5d590db48c41b4a96765b750127",
+    "experiments/manifests/smn4lang/vocabulary_N100.json": "2416472227ca7ffc3f1aeafeea8e343c2b54a1d30277d3b38df495a45d1fc408",
+    "experiments/manifests/smn4lang/vocabulary_N150.json": "1e554cba5d81d7979e338463c91e33bd701535065a549fd783b6f8227733f0f7",
+    "experiments/manifests/smn4lang/vocabulary_support.json": "619ce6f72051d7f77ec1699941e715698186294dead2eaf4a163f0405e760a44",
 }
 
 
@@ -432,41 +428,11 @@ def test_donor_aggregate_uses_all_twenty_seeds():
                 "macro_recall_at_10": value + 0.3,
                 "median_rank": 10.0 + seed,
                 "mean_reciprocal_rank": value + 0.4,
-                "ovmi_story": {"available": True, "score_bits": value + 0.5},
             }
         }
     aggregate = evaluate.aggregate_donor_results(per_seed)
     assert aggregate["N50"]["retrieval"]["top1"]["count"] == 20
     assert aggregate["N50"]["retrieval"]["top1"]["mean"] == pytest.approx(0.095)
-    assert aggregate["N50"]["ovmi_story"]["score_bits"]["count"] == 20
-
-
-def test_ovmi_language_is_supplied_by_dataset_adapter(monkeypatch):
-    observed = {}
-
-    def fake_ovmi(true_words, predicted_words, vocabulary, config):
-        del true_words, predicted_words, vocabulary
-        observed["language"] = config["language"]
-        return {"available": True, "score_bits": 0.0}
-
-    monkeypatch.setattr(evaluate, "full_ovmi_metrics", fake_ovmi)
-    encoded = {
-        "event_ids": ["a", "b"],
-        "target_embeddings": torch.eye(2),
-        "words": ["a", "b"],
-    }
-    result = evaluate.evaluate_control(
-        torch.eye(2),
-        encoded,
-        ["a", "b"],
-        {2: {"vocabulary": ["a", "b"], "manifest_sha256": "sha"}},
-        None,
-        {"a": 1, "b": 1},
-        dataset_name="pallier2025",
-        language="fr",
-    )
-    assert observed["language"] == "fr"
-    assert result["N2"]["ovmi_story"]["available"] is True
 
 
 def test_runner_rejects_test_before_any_neural_access():

@@ -121,11 +121,6 @@ training:
 evaluation:
   default_split: val
   zero_eeg_control: false
-  ovmi:
-    enabled: true
-    method: full
-    reference: references/subtlex_ch.json
-    language: zh
 
 provenance:
   dataset: ChineseEEG2 PassiveListening Little Prince

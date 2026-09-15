@@ -72,10 +72,6 @@ def test_pallier_resolved_scientific_contract(selector, use_transformer, warm_st
         "retrieval_acc10_vocab=pallier2025_50_macro"
     )
     assert config["evaluation"]["vocabulary_sizes"] == [20, 50, 100, 150]
-    assert config["evaluation"]["ovmi"]["domain"] == {
-        "available": False,
-        "reason": "domain_reference_not_frozen",
-    }
     if warm_start:
         assert config["training"]["warm_start_from"] == "main_word"
         assert config["training"]["pretrained_brain_encoder_checkpoint"].replace(
@@ -395,8 +391,8 @@ def test_pallier_preflight_contract_is_valid_for_all_initialization_conditions(
 
 def test_pallier_scientific_hashes_are_frozen():
     expected = {
-        "pallier2025/sub01-10/main_word": "5c6f68f711d19c341b71d75e654c607b88ba1c606ae8b2fad0377ee680d12ff6",
-        "pallier2025/sub01-10/main_context_warmstart": "24d8882f690bcb0b918efe83574036b94625a793954555bd3bc9610c2336a2d1",
+        "pallier2025/sub01-10/main_word": "4ac0ff59831c4e15647806b2bd584935a9314534e3a31cde837af51309d5d242",
+        "pallier2025/sub01-10/main_context_warmstart": "76ad3d30633d0f6aa3e59641d0f5295ac1ea7d415e85d3d896dd2080e238db70",
     }
     for selector, digest in expected.items():
         _, config = load_experiment(selector)

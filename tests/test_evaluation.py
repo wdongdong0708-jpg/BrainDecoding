@@ -1,11 +1,9 @@
-"""公共词表、检索和 OVMI 评价边界的行为锁定测试。"""
-
-import json
+"""公共词表与检索评价边界的行为锁定测试。"""
 
 import numpy as np
 import pytest
 
-from braindecoding.evaluation import ovmi, retrieval, vocabulary
+from braindecoding.evaluation import retrieval, vocabulary
 
 
 def _embeddings():
@@ -67,59 +65,6 @@ def test_fixed_vocabulary_predictions_and_metrics_are_unchanged():
     assert actual_metrics["retrieval_acc10_vocab=test3"] == 1.0
 
 
-def test_confusion_full_ovmi_and_coverage_are_unchanged():
-    words = ["甲", "乙", "丙"]
-    true_words = ["甲", "甲", "乙", "乙", "丙", "丙"]
-    predicted_words = ["甲", "乙", "乙", "乙", "丙", "甲"]
-    reference = {"甲": 5, "乙": 3, "丙": 2, "词表外": 1}
-    config = {
-        "enabled": True,
-        "method": "full",
-        "reference": reference,
-        "language": "zh",
-    }
-
-    actual_matrix = ovmi.build_confusion_matrix(true_words, predicted_words, words)
-    np.testing.assert_array_equal(actual_matrix, [[1, 1, 0], [0, 2, 0], [1, 0, 1]])
-
-    actual = ovmi.full_ovmi_metrics(true_words, predicted_words, words, config)
-    assert actual["score_bits"] == pytest.approx(0.5787877108333521)
-    assert actual["coverage"] == pytest.approx(0.9090909090909091)
-    assert actual["in_vocab_information_bits"] == pytest.approx(0.6366664819166874)
-    assert actual["output_entropy_bits"] == pytest.approx(1.3366664819166874)
-    assert actual["conditional_entropy_bits"] == pytest.approx(0.7)
-
-
-def test_reference_mapping_json_and_csv_loading_are_unchanged(tmp_path):
-    mapping = {"甲": 3, "乙": 2}
-    json_path = tmp_path / "reference.json"
-    json_path.write_text(json.dumps(mapping, ensure_ascii=False), encoding="utf-8")
-    csv_path = tmp_path / "reference.csv"
-    csv_path.write_text("word,count\n甲,3\n乙,2\n", encoding="utf-8")
-
-    for source in (mapping, json_path, csv_path):
-        assert ovmi.load_reference_distribution(source) == mapping
-
-
-def test_missing_required_reference_is_explicitly_unavailable(tmp_path):
-    missing = tmp_path / "missing-reference.json"
-    result = ovmi.full_ovmi_metrics(
-        ["甲", "乙"],
-        ["甲", "乙"],
-        ["甲", "乙"],
-        {
-            "enabled": True,
-            "method": "full",
-            "reference": str(missing),
-            "language": "zh",
-        },
-    )
-    assert result["available"] is False
-    assert result["reason"] == "reference_or_official_ovmi_unavailable"
-    assert result["score_bits"] is None
-    assert missing.name in result["error"]
-
-
 def test_frequency_vocabulary_is_deterministic_for_duplicates_and_ties():
     words = [" Beta ", "alpha", "BETA", "ALPHA", "gamma", "delta"]
     normalizer = lambda value: str(value).strip().lower()
@@ -171,26 +116,6 @@ def test_frozen_vocabulary_validation_and_metadata():
         "normalization": "lower_strip",
         "word_counts": {"alpha": 4, "beta": 3},
     }
-
-
-def test_story_reference_counts_only_explicit_words_and_is_independent():
-    source_words = ["故事", "词", "故事", ""]
-    reference = ovmi.build_reference_distribution(source_words)
-    assert reference == {"故事": 2, "词": 1}
-
-    candidate = vocabulary.build_frequency_vocabulary(["甲", "甲", "乙"], 2)
-    unrelated_reference = ovmi.build_reference_distribution(["丙"] * 100)
-    assert candidate == ("甲", "乙")
-    assert unrelated_reference == {"丙": 100}
-
-
-def test_word_evaluators_import_official_common_ovmi():
-    from braindecoding.tasks.word_decoding.chineseeeg2_littleprince import evaluate as chinese
-    from braindecoding.tasks.word_decoding.libribrain100 import evaluate as libri
-    from braindecoding.tasks.word_decoding.smn4lang import evaluate as smn
-
-    for module in (chinese, smn, libri):
-        assert module.fixed_vocabulary_ovmi_metrics is ovmi.fixed_vocabulary_ovmi_metrics
 
 
 def test_word_training_evaluators_reach_the_same_retrieval_implementation():

@@ -15,7 +15,6 @@ from braindecoding.audit.controls import (
     validate_payload_sha256,
     with_payload_sha256,
 )
-from braindecoding.evaluation.ovmi import full_ovmi_metrics
 from braindecoding.evaluation.retrieval import (
     normalize_rows,
     retrieval_ranks,
@@ -353,68 +352,21 @@ def evaluate_control(
     encoded: dict,
     query_event_ids,
     vocabulary_manifests: dict[int, dict],
-    ovmi_support_manifest: dict | None,
-    story_reference: dict | None,
     *,
     dataset_name: str,
-    language: str,
     vocabulary_statuses: dict[int, dict] | None = None,
 ) -> dict:
     """按实际冻结词表汇总 retrieval；缺失资产保持显式 not_run。"""
     results = {}
     for size, vocabulary_manifest in sorted(vocabulary_manifests.items()):
         vocabulary = vocabulary_manifest["vocabulary"]
-        metrics, details = fixed_vocabulary_metrics_for_queries(
+        metrics, _ = fixed_vocabulary_metrics_for_queries(
             predictions,
             encoded,
             query_event_ids,
             vocabulary,
             vocabulary_name=f"{dataset_name.lower()}_N{size}",
         )
-        frozen_support = None
-        if ovmi_support_manifest is not None:
-            frozen_support = (
-                ovmi_support_manifest.get("vocabularies", {})
-                .get(f"N{size}", {})
-                .get("splits", {})
-                .get("val")
-            )
-        missing_words = list(metrics["missing_vocabulary_words"])
-        if story_reference is None:
-            metrics["ovmi_story"] = {
-                "available": False,
-                "reason": "story_reference_not_frozen",
-                "status": "not_run",
-            }
-        elif not missing_words:
-            metrics["ovmi_story"] = full_ovmi_metrics(
-                details["true_words"],
-                details["predicted_words"],
-                vocabulary,
-                {
-                    "enabled": True,
-                    "method": "full",
-                    "reference": story_reference,
-                    "language": str(language),
-                },
-            )
-        else:
-            metrics["ovmi_story"] = {
-                "available": False,
-                "frozen_validation_support_status": (
-                    frozen_support.get("full_ovmi_status")
-                    if frozen_support is not None
-                    else None
-                ),
-                "missing_word_count": len(missing_words),
-                "missing_words": missing_words,
-                "reason": "missing_true_class_support",
-                "supported_word_count": len(vocabulary) - len(missing_words),
-            }
-        metrics["ovmi_domain"] = {
-            "available": False,
-            "reason": "domain_reference_not_frozen",
-        }
         results[f"N{size}"] = metrics
     for size, status in sorted((vocabulary_statuses or {}).items()):
         results.setdefault(f"N{int(size)}", dict(status))
@@ -446,7 +398,7 @@ def _summary_statistics(values) -> dict:
 
 
 def aggregate_donor_results(per_seed_results: dict[str, dict]) -> dict:
-    """按固定 20 seeds 汇总 donor retrieval 与可用 story OVMI。"""
+    """按固定 20 seeds 汇总 donor retrieval。"""
     if len(per_seed_results) != 20:
         raise ValueError("donor aggregate 必须包含固定的 20 个 seed。")
     sizes = sorted(
@@ -469,23 +421,9 @@ def aggregate_donor_results(per_seed_results: dict[str, dict]) -> dict:
             name: _summary_statistics([block[field] for block in blocks])
             for name, field in _AGGREGATE_RETRIEVAL_FIELDS.items()
         }
-        ovmi = [block.get("ovmi_story", {}) for block in blocks]
-        if all(item.get("available") and item.get("score_bits") is not None for item in ovmi):
-            ovmi_story = {
-                "status": "completed",
-                "score_bits": _summary_statistics(
-                    [item["score_bits"] for item in ovmi]
-                ),
-            }
-        else:
-            ovmi_story = {
-                "status": "unavailable",
-                "reason": "not_available_for_all_donor_seeds",
-            }
         aggregate[size] = {
             "status": "completed",
             "retrieval": retrieval,
-            "ovmi_story": ovmi_story,
         }
     return aggregate
 

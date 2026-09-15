@@ -444,41 +444,25 @@ def build_protocol_assets(event_table_path) -> dict[str, dict]:
             ].tolist()
             observed = set(words)
             missing = [word for word in vocabulary if word not in observed]
-            available = not missing
             split_records[split] = {
                 "candidate_count": size,
                 "supported_candidate_count": size - len(missing),
                 "missing_candidate_count": len(missing),
                 "missing_words": missing,
+                "support_fraction": (size - len(missing)) / size,
                 "token_count": len(words),
                 "token_coverage": float(
                     sum(word in set(vocabulary) for word in words) / len(words)
-                ),
-                "full_ovmi_available": available,
-                "full_ovmi_reason": (
-                    None if available else "missing_true_class_support"
                 ),
             }
         support[f"N{size}"] = {
             "candidate_manifest_sha256": vocabulary_manifest["manifest_sha256"],
             "splits": split_records,
         }
-    documents["ovmi_support.json"] = _with_manifest_sha256(
+    documents["vocabulary_support.json"] = _with_manifest_sha256(
         {
-            "asset_type": "ovmi_evaluation_support",
+            "asset_type": "evaluation_vocabulary_support",
             "dataset": DATASET_ID,
-            "domain_reference": {
-                "available": False,
-                "reason": "domain_reference_not_frozen",
-                "status": "not_frozen",
-            },
-            "full_ovmi_rule": {
-                "missing_true_sample_action": "unavailable",
-                "reason": "missing_true_class_support",
-                "remove_missing_words": False,
-                "silent_metric_substitution": False,
-                "smooth_zero_rows": False,
-            },
             "generator": "braindecoding.data.pallier2025.build_protocol_assets",
             "generator_sha256": generator_digest,
             "status": "frozen_support_audit",
@@ -491,62 +475,6 @@ def build_protocol_assets(event_table_path) -> dict[str, dict]:
         }
     )
 
-    story_counts = Counter(material["_protocol_word"])
-    story_reference = {
-        word: int(story_counts[word]) for word in sorted(story_counts)
-    }
-    reference_bytes = (
-        json.dumps(
-            story_reference,
-            ensure_ascii=False,
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n"
-    ).encode("utf-8")
-    material_fingerprints = []
-    for run, rows in material.groupby("运行编号", sort=False):
-        words = rows.sort_values("BIDS事件行号", kind="stable")[
-            "_protocol_word"
-        ].tolist()
-        material_fingerprints.append(
-            {
-                "run": str(run),
-                "token_count": len(words),
-                "text_fingerprint": text_fingerprint(words),
-            }
-        )
-    documents["story_reference.json"] = story_reference
-    documents["story_reference.provenance.json"] = _with_manifest_sha256(
-        {
-            "asset_type": "story_reference_provenance",
-            "dataset": DATASET_ID,
-            "language": "fr",
-            "source_materials": list(RUNS),
-            "includes_train": True,
-            "includes_val": True,
-            "includes_test": True,
-            "split_independent": True,
-            "normalization": "strip_lower_preserve_french_accents_and_tokenization",
-            "frequency_unit": "material_word_occurrence",
-            "deduplication_key": ["运行编号", "BIDS事件行号"],
-            "subject_repetitions_counted": False,
-            "run_03_source_excludes": "sub-09/run-03",
-            "run_03_source_contract": "verified_common_canonical_sequence",
-            "token_count": int(sum(story_reference.values())),
-            "type_count": len(story_reference),
-            "material_fingerprints": material_fingerprints,
-            "reference_sha256": hashlib.sha256(reference_bytes).hexdigest(),
-            "event_table": "derived/pallier2025/events/events.csv",
-            "event_table_sha256": event_digest,
-            "generator": "braindecoding.data.pallier2025.build_protocol_assets",
-            "generator_sha256": generator_digest,
-            "domain_reference": {"status": "not_frozen"},
-            "test_model_evaluation": "not_run",
-            "test_predictions_generated": False,
-            "test_metrics_inspected": False,
-        }
-    )
     return documents
 
 

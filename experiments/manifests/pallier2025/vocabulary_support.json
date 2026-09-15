@@ -1,21 +1,9 @@
 {
-  "asset_type": "ovmi_evaluation_support",
+  "asset_type": "evaluation_vocabulary_support",
   "dataset": "pallier2025",
-  "domain_reference": {
-    "available": false,
-    "reason": "domain_reference_not_frozen",
-    "status": "not_frozen"
-  },
-  "full_ovmi_rule": {
-    "missing_true_sample_action": "unavailable",
-    "reason": "missing_true_class_support",
-    "remove_missing_words": false,
-    "silent_metric_substitution": false,
-    "smooth_zero_rows": false
-  },
   "generator": "braindecoding.data.pallier2025.build_protocol_assets",
-  "generator_sha256": "39f1dd49dd02cebd22008abd668d6558340574a7f6021dc3379926e9d7c34d08",
-  "manifest_sha256": "c45aff9e62c6c0458fb56e1820aeea38485cea4744c06ae88d16f41c3b293f0c",
+  "generator_sha256": "2cb2cfc7132ad5b7e7a3332a5b432464a73a19a6025c3cda9ed577d47192dd33",
+  "manifest_sha256": "457291885d8f3801e0d20103ddf3aba090d4a6c0fc94226b2668f42022ba8093",
   "status": "frozen_support_audit",
   "support_audit_used_for_vocabulary_selection": false,
   "test_labels_used_for_support_audit_only": true,
@@ -24,12 +12,10 @@
   "test_predictions_generated": false,
   "vocabularies": {
     "N100": {
-      "candidate_manifest_sha256": "80961a881855a3ffd854d4cfef3b99ff4a2f7f4f467d6da69586c306b20d7eb3",
+      "candidate_manifest_sha256": "54d2f40107ca73186b4e898629f0687476816dba529bfd307f76cdd9ef20e866",
       "splits": {
         "test": {
           "candidate_count": 100,
-          "full_ovmi_available": false,
-          "full_ovmi_reason": "missing_true_class_support",
           "missing_candidate_count": 10,
           "missing_words": [
             "mon",
@@ -43,14 +29,13 @@
             "-là",
             "quoi"
           ],
+          "support_fraction": 0.9,
           "supported_candidate_count": 90,
           "token_count": 1845,
           "token_coverage": 0.586449864498645
         },
         "val": {
           "candidate_count": 100,
-          "full_ovmi_available": false,
-          "full_ovmi_reason": "missing_true_class_support",
           "missing_candidate_count": 10,
           "missing_words": [
             "étoiles",
@@ -64,6 +49,7 @@
             "personnes",
             "quoi"
           ],
+          "support_fraction": 0.9,
           "supported_candidate_count": 90,
           "token_count": 1696,
           "token_coverage": 0.5902122641509434
@@ -71,12 +57,10 @@
       }
     },
     "N150": {
-      "candidate_manifest_sha256": "bf84195cdd3d88cdf671ce1a3d8c924a0f223e00471ea680e5d3a054bf22b533",
+      "candidate_manifest_sha256": "87222410a35cc1593a8a5f5b342b1f48ca7d0aa172de00f3f326f4cfdefb6edc",
       "splits": {
         "test": {
           "candidate_count": 150,
-          "full_ovmi_available": false,
-          "full_ovmi_reason": "missing_true_class_support",
           "missing_candidate_count": 32,
           "missing_words": [
             "mon",
@@ -112,14 +96,13 @@
             "chose",
             "sais"
           ],
+          "support_fraction": 0.7866666666666666,
           "supported_candidate_count": 118,
           "token_count": 1845,
           "token_coverage": 0.6254742547425475
         },
         "val": {
           "candidate_count": 150,
-          "full_ovmi_available": false,
-          "full_ovmi_reason": "missing_true_class_support",
           "missing_candidate_count": 28,
           "missing_words": [
             "étoiles",
@@ -151,6 +134,7 @@
             "fleurs",
             "sais"
           ],
+          "support_fraction": 0.8133333333333334,
           "supported_candidate_count": 122,
           "token_count": 1696,
           "token_coverage": 0.6397405660377359
@@ -158,24 +142,22 @@
       }
     },
     "N20": {
-      "candidate_manifest_sha256": "634cad05200a5b89c2522857bfb63bccdd7d4368b2651a70829098269111bcde",
+      "candidate_manifest_sha256": "c591538c310d0a0edf538759e4bb807334afc34a217e0c969de1089257406644",
       "splits": {
         "test": {
           "candidate_count": 20,
-          "full_ovmi_available": true,
-          "full_ovmi_reason": null,
           "missing_candidate_count": 0,
           "missing_words": [],
+          "support_fraction": 1.0,
           "supported_candidate_count": 20,
           "token_count": 1845,
           "token_coverage": 0.3024390243902439
         },
         "val": {
           "candidate_count": 20,
-          "full_ovmi_available": true,
-          "full_ovmi_reason": null,
           "missing_candidate_count": 0,
           "missing_words": [],
+          "support_fraction": 1.0,
           "supported_candidate_count": 20,
           "token_count": 1696,
           "token_coverage": 0.3001179245283019
@@ -183,26 +165,24 @@
       }
     },
     "N50": {
-      "candidate_manifest_sha256": "bac16736fa2ee14996f15426aea52b38442c556c317fbcae929ec6c5a703a908",
+      "candidate_manifest_sha256": "6e9d12c345b28cd695f6971216e0c90f3a306b0a0e0f16fc05c3de802be11505",
       "splits": {
         "test": {
           "candidate_count": 50,
-          "full_ovmi_available": false,
-          "full_ovmi_reason": "missing_true_class_support",
           "missing_candidate_count": 1,
           "missing_words": [
             "mon"
           ],
+          "support_fraction": 0.98,
           "supported_candidate_count": 49,
           "token_count": 1845,
           "token_coverage": 0.48401084010840106
         },
         "val": {
           "candidate_count": 50,
-          "full_ovmi_available": true,
-          "full_ovmi_reason": null,
           "missing_candidate_count": 0,
           "missing_words": [],
+          "support_fraction": 1.0,
           "supported_candidate_count": 50,
           "token_count": 1696,
           "token_coverage": 0.48702830188679247

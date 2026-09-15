@@ -36,14 +36,14 @@ CANONICAL_FILES = (
     "word_decoding/pallier2025/sub01-10/main_context_warmstart.yaml",
 )
 ACTIVE_SCIENTIFIC_SHA256 = {
-    "word_decoding/chineseeeg2_littleprince/sub01-08/main_word.yaml": "8dd6d1bc8b90a755ebe5d88a55fc2f03fbb3373174c2faf5fb907499d216dd07",
-    "word_decoding/chineseeeg2_littleprince/sub01-08/main_context_warmstart.yaml": "2bf436237636708d94a3612d0062f2957983bf91526888b08e7e136b3e961f98",
-    "word_decoding/smn4lang/sub01-06/main_word.yaml": "4da34c56dd91c1adc2c1eb02df9c1af7bea810b3f3e0338249e3f22576d82604",
-    "word_decoding/smn4lang/sub01-06/main_context_warmstart.yaml": "d9ed5fa323c9ad4db6be80988fd5e988e40c0b023fee85f99bc8cef728bbfc90",
-    "word_decoding/libribrain100/sub0/main_word.yaml": "b32676c2fce12595eff0acc5c0804b4f567f0ee9b39c8d64be3492c8174d4ea7",
-    "word_decoding/libribrain100/sub0/main_context_warmstart.yaml": "80e374f1dd3ef0a3dc0356dba22718de85a4fc1096730963e4a453c835fc7405",
-    "word_decoding/pallier2025/sub01-10/main_word.yaml": "5c6f68f711d19c341b71d75e654c607b88ba1c606ae8b2fad0377ee680d12ff6",
-    "word_decoding/pallier2025/sub01-10/main_context_warmstart.yaml": "24d8882f690bcb0b918efe83574036b94625a793954555bd3bc9610c2336a2d1",
+    "word_decoding/chineseeeg2_littleprince/sub01-08/main_word.yaml": "b099aaa3de516d2eeef84dbddb78d5700d2fd9e71efcb8462906f24731c4eb0a",
+    "word_decoding/chineseeeg2_littleprince/sub01-08/main_context_warmstart.yaml": "b528d9129c172ec63e32c5e5b47d1634adfb6b1f5dce28d9a9ded383cbb6e838",
+    "word_decoding/smn4lang/sub01-06/main_word.yaml": "61df853e585138b9045e9af0ec14bddcb7265946d0bfcc563885e610be4422b4",
+    "word_decoding/smn4lang/sub01-06/main_context_warmstart.yaml": "8bef5bde2cd60941d07827df743c862c33397ddf0d17ddc02cefafed9f65763b",
+    "word_decoding/libribrain100/sub0/main_word.yaml": "471be1dfefe9392e21f230e1c18659f1423d315c399ef56782e1daa82a42c618",
+    "word_decoding/libribrain100/sub0/main_context_warmstart.yaml": "4479ef239889dbddd913b38672ca44dac770f02b59b6394da988cef4ef514d12",
+    "word_decoding/pallier2025/sub01-10/main_word.yaml": "4ac0ff59831c4e15647806b2bd584935a9314534e3a31cde837af51309d5d242",
+    "word_decoding/pallier2025/sub01-10/main_context_warmstart.yaml": "76ad3d30633d0f6aa3e59641d0f5295ac1ea7d415e85d3d896dd2080e238db70",
 }
 WARM_STARTS = {
     "word_decoding/chineseeeg2_littleprince/sub01-08/main_context_warmstart.yaml": "main_word",

@@ -28,8 +28,8 @@ except ImportError:  # 直接运行本文件时使用。
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DATA_PATH = PROJECT_ROOT / "reports" / "exports" / "fig4_audit.csv"
-OUTPUT_STEM = PROJECT_ROOT / "paper" / "figures" / "fig4_audit"
+DATA_PATH = PROJECT_ROOT / "reports" / "exports" / "fig3_audit.csv"
+OUTPUT_STEM = PROJECT_ROOT / "paper" / "figures" / "fig3_audit"
 DATASET_ORDER = ("ChineseEEG2", "SMN4Lang", "Pallier2025")
 MODEL_ORDER = ("word", "context")
 CONTROL_ORDER = ("clean", "temporal", "donor", "structure_only")

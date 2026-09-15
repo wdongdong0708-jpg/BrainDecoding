@@ -44,7 +44,6 @@ def test_root_legacy_business_modules_and_directories_are_absent():
         "losses.py",
         "optimizers.py",
         "metrics.py",
-        "ovmi_metrics.py",
         "run.py",
     ):
         assert not (PROJECT_ROOT / name).exists()
@@ -58,7 +57,6 @@ def test_package_production_code_has_no_legacy_root_imports():
         "losses",
         "optimizers",
         "metrics",
-        "ovmi_metrics",
     }
     for path in (PROJECT_ROOT / "braindecoding").rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"))

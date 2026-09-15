@@ -22,11 +22,6 @@ dependencies = [
   "transformers",
 ]
 
-[project.optional-dependencies]
-ovmi = [
-  "ovmi @ git+https://github.com/neural-processing-lab/OVMI.git@5d3ef28245279ebc0165a0d19681cb9c563d535a",
-]
-
 [project.scripts]
 brain-decoding = "braindecoding.cli:main"
 

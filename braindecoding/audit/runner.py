@@ -48,12 +48,6 @@ DATASET_LABELS = {
     "libribrain100": "LibriBrain100",
     "pallier2025": "Pallier2025",
 }
-DATASET_LANGUAGES = {
-    "chineseeeg2_littleprince": "zh",
-    "smn4lang": "zh",
-    "libribrain100": "en",
-    "pallier2025": "fr",
-}
 MANIFEST_DIRECTORIES = {
     "chineseeeg2_littleprince": "chineseeeg2",
     "smn4lang": "smn4lang",
@@ -142,8 +136,7 @@ def _task_adapter(dataset_id: str) -> dict:
 
 
 def _load_protocol_assets(dataset_id: str) -> dict:
-    """读取已冻结资产；Libri 缺失的 N 和 story 不会被自动构造。"""
-    language = DATASET_LANGUAGES[dataset_id]
+    """读取已冻结候选词表；Libri 缺失的 N 不会被自动构造。"""
     if dataset_id == "libribrain100":
         from braindecoding.data.libribrain import LIBRIBRAIN100_50_WORD_VOCABULARY
 
@@ -163,9 +156,6 @@ def _load_protocol_assets(dataset_id: str) -> dict:
             if size != 50
         }
         return {
-            "language": language,
-            "story_reference": None,
-            "support": None,
             "vocabularies": {
                 50: {
                     "dataset": "libribrain100",
@@ -188,18 +178,7 @@ def _load_protocol_assets(dataset_id: str) -> dict:
         manifest = _load_json(path)
         validate_manifest_sha256(manifest)
         vocabularies[size] = manifest
-    story_path = directory / "story_reference.json"
-    if not story_path.is_file():
-        raise FileNotFoundError(f"缺少 story reference：{story_path}")
-    support_path = directory / "ovmi_support.json"
-    if not support_path.is_file():
-        raise FileNotFoundError(f"缺少 OVMI support manifest：{support_path}")
-    support = _load_json(support_path)
-    validate_manifest_sha256(support)
     return {
-        "language": language,
-        "story_reference": _load_json(story_path),
-        "support": support,
         "vocabularies": vocabularies,
         "vocabulary_statuses": {},
     }
@@ -575,10 +554,7 @@ def _evaluate_predictions(predictions, encoded, query_ids, protocol, dataset_id)
         encoded,
         query_ids,
         protocol["vocabularies"],
-        protocol["support"],
-        protocol["story_reference"],
         dataset_name=dataset_id,
-        language=protocol["language"],
         vocabulary_statuses=protocol["vocabulary_statuses"],
     )
 
@@ -983,7 +959,6 @@ def run_experiment(selector: str, *, device_name="auto", mapping_only=False) -> 
     }
     if mapping_only:
         protocol = _load_protocol_assets(record["identity"]["dataset"])
-        result["language"] = protocol["language"]
         result["vocabulary_status"] = {
             f"N{size}": (
                 "frozen"
